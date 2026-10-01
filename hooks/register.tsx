@@ -258,7 +258,14 @@ const released = async ($: EngineInterface): Promise<void> => {
  * others see that at their next look and fall silent.
  */
 const tuned = async ($: EngineInterface, isClaiming = false): Promise<void> => {
-  const now = await read($, settings)
+  // The sound is one for every session: on, off and how loud are taken from
+  // the store, where another session may have switched them since.
+  const { isSoundOn, volume } = toSettings(await $.store.get(SETTINGS))
+  const held = await read($, settings)
+  const now =
+    held.isSoundOn === isSoundOn && held.volume === volume
+      ? held
+      : await update($, settings, kept => ({ ...kept, isSoundOn, volume }))
 
   if (!now.isOn || !now.isSoundOn) {
     stage.ticker?.cancel()
@@ -403,7 +410,9 @@ const finished = (kept: AmbientFeed): AmbientFeed => {
 
 /**
  * Changes settings for this session and keeps them for the next ones: the
- * change itself, or what it is given the settings as they stand.
+ * change itself, or what it is given the settings as they stand. Only what
+ * changed is written over what the store holds: another session open at the
+ * same time may have changed the rest since this one read it.
  */
 const stored = async (
   $: EngineInterface,
@@ -411,11 +420,13 @@ const stored = async (
     | Partial<AmbientSettings>
     | ((now: AmbientSettings) => Partial<AmbientSettings>),
 ): Promise<AmbientSettings> => {
-  const next = await update($, settings, now => ({
-    ...now,
-    ...(typeof change === 'function' ? change(now) : change),
-  }))
-  await $.store.set(SETTINGS, next)
+  const changed =
+    typeof change === 'function' ? change(await read($, settings)) : change
+  const next = await update($, settings, now => ({ ...now, ...changed }))
+  await $.store.set(SETTINGS, {
+    ...toSettings(await $.store.get(SETTINGS)),
+    ...changed,
+  })
   // The person just did something in this session: its bed is the one heard.
   await tuned($, true)
 

@@ -486,6 +486,25 @@ test('however many sessions are open, one plays the bed: the one last used, or o
   await clock.advance(600)
   expect(bedsOf(plays)).toEqual(['stars-night', 'stars-night'])
 
+  // The sound switched off in another session is off in this one too: its
+  // bed stops, its calls fall silent, and a turn started here does not bring
+  // the bed back. Switched on there again, it is on here at the next turn.
+  const elsewhere = (isSoundOn: boolean) =>
+    store.set('settings', { ...(store.get('settings') as object), isSoundOn })
+  elsewhere(false)
+  await clock.advance(2000)
+  const quiet = plays.length
+  await $.tool.call(CALLS.read)
+  await $.turn.start({ text: 'go', turnId: 'turn' })
+  await clock.advance(60_000)
+  expect(plays).toHaveLength(quiet)
+  expect(await typed($, 'list')).toContain('sound off')
+  elsewhere(true)
+  await $.turn.start({ text: 'go', turnId: 'turn' })
+  await clock.advance(3000)
+  expect(bedsOf(plays).at(-1)).toBe('stars-night')
+  expect(plays.length).toBeGreaterThan(quiet)
+
   // A session that ends leaves the bed free at once.
   await $.session.end({ reason: 'prompt_input_exit', sessionId: 'here', resume: { id: 'here' } })
   expect(store.has('player')).toBe(false)
