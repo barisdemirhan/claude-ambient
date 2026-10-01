@@ -43,6 +43,13 @@ const CALL_GAP_MS = 250
 const BED_MIX = 0.55
 const EVENT_MIX = 0.6
 const VOLUME_STEP = 10
+// Cells kept clear after the label on the hint line, and between it and what
+// stands beside it: the line draws marks its text does not count.
+const HINT_MARGIN = 6
+const HINT_GAP = 2
+// Other words for the sound going off and on.
+const QUIET_WORDS = ['stop', 'mute', 'quiet', 'silent']
+const LOUD_WORDS = ['play', 'unmute']
 // Open-Meteo, asked only once the person names a place: where the place is,
 // and what the sky does over it, every quarter of an hour.
 const GEOCODE = 'https://geocoding-api.open-meteo.com/v1/search'
@@ -79,7 +86,7 @@ const ALIASES: Readonly<Record<string, SceneId>> = {
   cat: 'lofi',
 }
 const USAGE =
-  'Usage: /ambient opens the picker, /ambient <scene> picks one, or /ambient list, next, prev, on, off, sound [on|off], volume <0-100>, weather <city|auto|off>, shuffle [on|off], rows <3-10>, when <always|working>, replant.'
+  'Usage: /ambient opens the picker, /ambient <scene> picks one, or /ambient list, next, prev, on, off, sound [on|off], mute, volume <0-100|up|down>, weather <city|auto|off>, shuffle [on|off], rows <3-10>, when [always|working], hint [on|off], replant.'
 const DEFAULTS: AmbientSettings = {
   scene: 'aquarium',
   isOn: true,
@@ -89,6 +96,7 @@ const DEFAULTS: AmbientSettings = {
   isSoundOn: false,
   volume: 55,
   place: null,
+  hasHint: true,
 }
 // What of the sound lasts only as long as this module does: who this session
 // is among the others, the bed it plays, the bed each scene last asked for,
@@ -176,6 +184,7 @@ const toSettings = (value: unknown): AmbientSettings => ({
   isSoundOn: fieldOf(value, 'isSoundOn') === true,
   volume: toVolume(fieldOf(value, 'volume')),
   place: toPlace(fieldOf(value, 'place')),
+  hasHint: fieldOf(value, 'hasHint') !== false,
 })
 
 const toOwner = (value: unknown): Owner => {
@@ -608,16 +617,64 @@ const placeText = async ($: EngineInterface, words: string): Promise<string> => 
   return `Ambient weather follows the sky over ${place.name}${typeof country === 'string' ? `, ${country}` : ''}. Weather data by Open-Meteo.com.`
 }
 
+/**
+ * `/ambient volume <0-100|up|down>`. A number up to 1 with a point in it is
+ * taken as a share of the whole: `0.2` is 20.
+ */
 const volumeText = async ($: EngineInterface, word: string): Promise<string> => {
-  const volume = Number(word)
+  const step = word === 'up' ? VOLUME_STEP : word === 'down' ? -VOLUME_STEP : 0
+  const typed = Number(word)
+  const asked = word.includes('.') && typed <= 1 ? typed * 100 : typed
 
-  if (word === '' || !Number.isInteger(volume) || volume < 0 || volume > 100) {
-    return 'Ambient takes a volume from 0 to 100: /ambient volume 55.'
+  if (step === 0 && (word === '' || !Number.isFinite(asked) || asked < 0 || asked > 100)) {
+    return 'Ambient takes a volume from 0 to 100, or up and down: /ambient volume 55.'
   }
 
-  await stored($, { volume })
+  const { volume, isSoundOn } = await stored($, kept => ({
+    volume: toVolume(step === 0 ? asked : kept.volume + step),
+  }))
 
-  return `Ambient volume is ${volume}%.`
+  return `Ambient volume is ${volume}%${isSoundOn ? '' : ', and the sound is off: /ambient sound on'}.`
+}
+
+/** `/ambient hint [on|off]`: the label on the hint line under the prompt. */
+const hintText = async ($: EngineInterface, word: string): Promise<string> => {
+  const hasHint = word === '' ? !(await read($, settings)).hasHint : SWITCH[word]
+
+  if (hasHint === undefined) {
+    return USAGE
+  }
+
+  await stored($, { hasHint })
+
+  return hasHint
+    ? 'Ambient shows its scene and sound on the hint line under the prompt.'
+    : 'Ambient is off the hint line.'
+}
+
+/** What the hint line says of the band: its scene, and how it sounds. */
+const hintOf = (now: AmbientSettings): string => {
+  const sound = now.isSoundOn && now.volume > 0 ? `${now.volume}%` : 'muted'
+
+  return `♪ ${now.scene} ${sound}`
+}
+
+/**
+ * The label worked into the hint line's tail. A tail another mod already
+ * padded out to the row's end gives up that much of its padding; with no
+ * such room the label follows the line, or is left out when the row is full.
+ */
+const tailed = (hint: string, tail: string, label: string, columns: number): string => {
+  const gap = ' '.repeat(HINT_GAP)
+  const padding = ' '.repeat(label.length + HINT_GAP * 2)
+
+  if (tail.includes(padding)) {
+    return tail.replace(padding, `${gap}${label}${gap}`)
+  }
+
+  const room = columns - hint.length - tail.length - label.length
+
+  return room >= HINT_GAP + HINT_MARGIN ? `${tail}${gap}${label}` : tail
 }
 
 const rowsText = async ($: EngineInterface, word: string): Promise<string> => {
@@ -632,8 +689,10 @@ const rowsText = async ($: EngineInterface, word: string): Promise<string> => {
   return `Ambient is ${rows} rows tall.`
 }
 
+/** `/ambient when [always|working]`: the word's way, or the other with none. */
 const whenText = async ($: EngineInterface, word: string): Promise<string> => {
-  const when = WHEN[word]
+  const other = (await read($, settings)).when === 'working' ? 'always' : 'working'
+  const when = word === '' ? other : WHEN[word]
 
   if (when === undefined) {
     return 'Ambient shows always or while Claude works: /ambient when always, /ambient when working.'
@@ -697,7 +756,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'ambient',
       description: 'Pick the scene for the living band above the prompt',
-      argumentHint: '[scene|list|next|off|sound|volume|weather|shuffle|rows|when]',
+      argumentHint: '[scene|list|next|off|sound|mute|volume|weather|shuffle|rows|when|hint]',
     })
     const saved = toSettings(await $.store.get(SETTINGS))
     const before = await $.store.get(WORLD)
@@ -770,6 +829,10 @@ export const register: Register = on => {
       return { text: await soundText($, word) }
     }
 
+    if (verb === 'hint') {
+      return { text: await hintText($, word) }
+    }
+
     if (verb === 'volume') {
       return { text: await volumeText($, word) }
     }
@@ -801,6 +864,10 @@ export const register: Register = on => {
           ? 'Ambient: pick a scene, esc closes the picker.'
           : `Ambient's picker has no room to show: ${opened.reason}. /ambient list names the scenes.`,
       }
+    }
+
+    if (QUIET_WORDS.includes(verb) || LOUD_WORDS.includes(verb)) {
+      return { text: await soundText($, LOUD_WORDS.includes(verb) ? 'on' : 'off') }
     }
 
     if (verb === 'list' || verb === 'status') {
@@ -920,6 +987,41 @@ export const register: Register = on => {
     }
 
     return next(e)
+  })
+
+  // The scene and its sound at the end of the hint line under the prompt,
+  // beside what other mods put there. The hint's text is the engine's to
+  // draw: this only adds to its tail.
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    const now = await read($, settings)
+
+    if (!now.isOn || !now.hasHint || e.surface !== 'terminal') {
+      return next(e)
+    }
+
+    const tail = tailed(
+      e.props.hint,
+      e.props.tail ?? '',
+      hintOf(now),
+      e.viewport?.columns ?? 0,
+    )
+
+    return next({ ...e, props: { ...e.props, tail } })
+  })
+
+  // Only the terminal draws a hint's tail: elsewhere the label goes among
+  // the mode labels beside the hint line.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const now = await read($, settings)
+
+    if (!now.isOn || !now.hasHint || e.surface === 'terminal') {
+      return next(e)
+    }
+
+    return next({
+      ...e,
+      props: { ...e.props, modes: [...e.props.modes, hintOf(now)] },
+    })
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

@@ -585,3 +585,81 @@ test('the weather follows the real sky over a place the person names, and asks t
   expect(await ui.find({ type: 'Text', in: 'band', text: '°' })).toBeUndefined()
   await ui.unmount()
 })
+
+test('the hint line under the prompt says what plays, beside what other mods put there', async ($, on) => {
+  world(on)
+  // The engine's own drawing of the two sites, as text a test can read.
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    const props: object = e.props
+
+    return Text({
+      children:
+        'hint' in props
+          ? `${String(props.hint)}|${'tail' in props ? String(props.tail) : ''}|`
+          : `modes: ${'modes' in props && Array.isArray(props.modes) ? props.modes.join(', ') : ''}`,
+    })
+  })
+  const hintWith = async (tail?: string) => {
+    const ui = await $.ui.mount({
+      plugin: 'ambient',
+      surface: 'terminal',
+      component: 'PromptHint',
+      props: { isDraft: false, isWorking: false, hint: 'auto mode on', ...(tail === undefined ? {} : { tail }) },
+      viewport: { columns: 100, rows: 40 },
+    })
+    const text = (await ui.find({ type: 'Text' }))?.text ?? ''
+    await ui.unmount()
+
+    return text
+  }
+
+  expect(await hintWith()).toBe('auto mode on|  ♪ aquarium muted|')
+  await typed($, 'sound on')
+  await typed($, 'lofi')
+  expect(await hintWith()).toBe('auto mode on|  ♪ lofi 55%|')
+
+  // Another mod's label at the row's end keeps its place: this one takes
+  // some of the padding before it.
+  const padded = `${' '.repeat(40)}HI 00255`
+  const shared = await hintWith(padded)
+  expect(shared).toContain('  ♪ lofi 55%  ')
+  expect(shared.endsWith('HI 00255|')).toBe(true)
+  expect(shared).toHaveLength(`auto mode on|${padded}|`.length)
+
+  // Off the terminal the label goes among the mode labels.
+  const modes = await $.ui.mount({
+    plugin: 'ambient',
+    surface: 'desktop',
+    component: 'SessionMode',
+    props: { modes: ['auto'] },
+  })
+  expect((await modes.find({ type: 'Text' }))?.text).toBe('modes: auto, ♪ lofi 55%')
+  await modes.unmount()
+
+  expect(await typed($, 'hint off')).toBe('Ambient is off the hint line.')
+  expect(await hintWith()).toBe('auto mode on||')
+  await typed($, 'hint')
+  await typed($, 'off')
+  expect(await hintWith()).toBe('auto mode on||')
+})
+
+test('the commands take the words a person tries first', async ($, on) => {
+  const { clock, plays } = world(on)
+  await typed($, 'fire')
+
+  expect(await typed($, 'play')).toContain('Ambient sound is on at 55%')
+  await clock.advance(400)
+  expect(bedsOf(plays)).toEqual(['fire-hearth'])
+  expect(await typed($, 'stop')).toBe('Ambient sound is off.')
+  expect(await typed($, 'mute')).toBe('Ambient sound is off.')
+
+  expect(await typed($, 'volume 0.2')).toContain('Ambient volume is 20%, and the sound is off')
+  expect(await typed($, 'volume up')).toContain('Ambient volume is 30%')
+  expect(await typed($, 'volume down')).toContain('Ambient volume is 20%')
+  expect(await typed($, 'volume 1')).toContain('Ambient volume is 1%')
+  expect(await typed($, 'volume loud')).toContain('0 to 100')
+
+  expect(await typed($, 'when')).toBe('Ambient shows while Claude works.')
+  expect(await typed($, 'when')).toBe('Ambient shows always.')
+})

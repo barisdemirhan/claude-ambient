@@ -70,12 +70,13 @@ Weather data by [Open-Meteo.com](https://open-meteo.com/), under CC BY 4.0. Thei
 | `/ambient list` | Names the scenes and shows the settings |
 | `/ambient next`, `/ambient prev` | Steps through the scenes |
 | `/ambient off`, `/ambient on` | Takes the band away, and brings it back. While it is off nothing is counted and nothing sounds |
-| `/ambient sound [on\|off]` | The scene's sound. Off to begin with |
-| `/ambient volume <0-100>` | How loud. 55 to begin with |
+| `/ambient sound [on\|off]` | The scene's sound. Off to begin with. `/ambient mute` and `/ambient stop` turn it off, `/ambient play` turns it on |
+| `/ambient volume <0-100\|up\|down>` | How loud. 55 to begin with |
+| `/ambient hint [on\|off]` | The label at the end of the hint line under the prompt: the scene and its sound, `♪ lofi 55%` |
 | `/ambient weather <city\|auto\|off>` | The place whose real sky the weather scene follows |
 | `/ambient shuffle [on\|off]` | A new scene with every turn |
 | `/ambient rows <3-10>` | How tall the band is. Five rows to begin with |
-| `/ambient when <always\|working>` | Whether the band shows always, or only while Claude works |
+| `/ambient when [always\|working]` | Whether the band shows always, or only while Claude works. With no word, the other of the two |
 | `/ambient replant` | Plants a new bonsai |
 
 The band is Claude Code's own band above the prompt, so its keys work here too: `ctrl+x` `ctrl+a` collapses it.
@@ -111,7 +112,7 @@ Its hooks, all in `hooks/register.tsx`:
 
 - `session.start` registers the `/ambient` command and loads the settings, the bonsai and today's skyline, then passes the event on unchanged. `session.end` stops the bed and gives its place up to another session.
 - `command.run` answers only the `/ambient` command.
-- `ui.render` draws only the band above the prompt and the mod's own pane. Where the band is off, a survey holds it or there is no room, it passes the event on.
+- `ui.render` draws only the band above the prompt and the mod's own pane. Where the band is off, a survey holds it or there is no room, it passes the event on. It also adds the scene and its sound after the hint line under the prompt, leaving the hint itself and what other mods put there as they are.
 - `ui.message` reads only what the mod's own band posts: which bed the scene shows now.
 - `ui.close` notes that the mod's own pane closed, and passes every close on.
 - `tool.call` counts Claude's calls while the band is on, as described above, sounds them, and passes each call and its result on untouched.

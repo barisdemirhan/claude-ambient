@@ -7,8 +7,9 @@ export type AmbientSky = { code: number; isDay: boolean; temperature: number }
 /**
  * What the person switched with `/ambient`: the scene the band shows, whether
  * the band is on at all, how tall it is, when it shows, whether a new scene
- * comes with every turn, whether the scene is heard and how loud, and the
- * place whose sky the weather scene follows, if they named one.
+ * comes with every turn, whether the scene is heard and how loud, the place
+ * whose sky the weather scene follows, if they named one, and whether the
+ * hint line under the prompt says what plays.
  */
 export type AmbientSettings = {
   scene: string
@@ -19,6 +20,7 @@ export type AmbientSettings = {
   isSoundOn: boolean
   volume: number
   place: AmbientPlace | null
+  hasHint: boolean
 }
 
 /** One finished turn: how many tool calls it made and the kind it made most. */
