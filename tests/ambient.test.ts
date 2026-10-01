@@ -627,6 +627,12 @@ test('the hint line under the prompt says what plays, beside what other mods put
   expect(shared.endsWith('HI 00255|')).toBe(true)
   expect(shared).toHaveLength(`auto mode on|${padded}|`.length)
 
+  // After a label with no padding to give, a dot sets the two apart; on a
+  // row with no room left the label stays out.
+  expect(await hintWith('  25:00')).toBe('auto mode on|  25:00 · ♪ lofi 55%|')
+  expect(await hintWith(' '.repeat(80))).toContain('♪ lofi 55%')
+  expect(await hintWith('x'.repeat(80))).toBe(`auto mode on|${'x'.repeat(80)}|`)
+
   // Off the terminal the label goes among the mode labels.
   const modes = await $.ui.mount({
     plugin: 'ambient',

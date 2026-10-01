@@ -672,9 +672,12 @@ const tailed = (hint: string, tail: string, label: string, columns: number): str
     return tail.replace(padding, `${gap}${label}${gap}`)
   }
 
+  // After another mod's label a dot sets the two apart, as the line's own
+  // parts are set apart.
+  const joint = tail.trim() === '' ? gap : ' · '
   const room = columns - hint.length - tail.length - label.length
 
-  return room >= HINT_GAP + HINT_MARGIN ? `${tail}${gap}${label}` : tail
+  return room >= joint.length + HINT_MARGIN ? `${tail}${joint}${label}` : tail
 }
 
 const rowsText = async ($: EngineInterface, word: string): Promise<string> => {
