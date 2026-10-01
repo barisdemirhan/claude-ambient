@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-ambient",
+  "description": "Ambient scenes above the Claude Code prompt, seen and heard, fed by Claude's work",
+  "owner": {
+    "name": "Barış Demirhan"
+  },
+  "plugins": [
+    {
+      "name": "ambient",
+      "description": "A living band above the prompt that Claude's work feeds, with sound: an aquarium, a bonsai, a skyline, constellations, weather that can follow the real sky, a train, Game of Life, a heartbeat, a fireplace, digital rain or a lofi desk. /ambient picks the scene",
+      "source": "./",
+      "category": "fun"
+    }
+  ]
+}

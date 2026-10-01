@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-ambient</title>
+<meta name="description" content="A living band above the Claude Code prompt, fed by Claude's work: eleven scenes, each with its own sound. Try them here.">
+<meta property="og:title" content="claude-ambient">
+<meta property="og:description" content="Eleven living scenes above the Claude Code prompt, each with its own sound. Try them in the browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: one terminal on a desk. The band plays in it; everything else is the note beside it. */
+  :root {
+    --bg: #161a22;
+    --surface: #1e232e;
+    --raised: #272d3a;
+    --line: #343b4a;
+    --term: #10131a;
+    --fg: #e7e4dc;
+    --muted: #9099a8;
+    --accent: #f2b45e;
+    --on-accent: #1a1509;
+    --fail: #ef5350;
+    --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 var(--sans); padding-block: 40px 72px; padding-inline: 16px; }
+  .page { max-width: 1020px; margin-inline: auto; display: grid; gap: 34px; }
+  .page > *, .screen > * { min-width: 0; }
+  a { color: var(--accent); }
+
+  header { display: grid; gap: 14px; }
+  h1 { font: 600 34px/1.15 var(--mono); margin: 0; letter-spacing: -0.02em; }
+  .pitch { margin: 0; max-width: 62ch; color: var(--muted); font-size: 17px; }
+  .pitch b { color: var(--fg); font-weight: 500; }
+  .links { display: flex; flex-wrap: wrap; gap: 10px 18px; font: 500 14px var(--mono); }
+
+  button { font: 500 13px var(--mono); color: var(--fg); background: var(--raised); border: 1px solid var(--line); border-radius: 4px; padding: 7px 11px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed="true"] { background: var(--hue, var(--accent)); border-color: var(--hue, var(--accent)); color: var(--on-accent); }
+  button.go { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  button:disabled { opacity: 0.55; cursor: default; }
+
+  .terminal { background: var(--term); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-bottom: 1px solid var(--line); font: 400 12px var(--mono); color: var(--muted); }
+  .bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); display: block; }
+  .bar span { margin-left: 8px; }
+  .screen { padding: 14px; display: grid; gap: 10px; font: 400 14px/1.5 var(--mono); }
+  .log { min-height: 6.2em; display: grid; align-content: end; gap: 2px; color: var(--muted); overflow: hidden; }
+  .log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log .fail { color: var(--fail); }
+  .log b { font-weight: 500; }
+  #band { display: block; width: 100%; image-rendering: pixelated; }
+  .prompt { border-block: 1px solid var(--line); padding: 7px 2px; color: var(--muted); }
+  .prompt b { color: var(--fg); font-weight: 400; }
+  .hint { color: var(--muted); font-size: 12px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+  .controls label { display: flex; align-items: center; gap: 8px; font: 400 13px var(--mono); color: var(--muted); }
+  input[type="range"] { accent-color: var(--accent); width: 130px; }
+  .note { font: 400 13px var(--mono); color: var(--muted); }
+
+  .scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 8px; }
+  .scenes button { text-align: left; padding: 11px 13px; display: grid; gap: 4px; background: var(--surface); }
+  .scenes strong { font: 600 14px var(--mono); }
+  .scenes span { font: 400 13px/1.4 var(--sans); color: var(--muted); }
+  .scenes button[aria-pressed="true"] { background: var(--surface); color: var(--fg); border-color: var(--hue); box-shadow: inset 3px 0 0 var(--hue); }
+
+  h2 { font: 600 18px var(--mono); margin: 0 0 10px; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 26px 34px; }
+  .two p { margin: 0 0 10px; color: var(--muted); max-width: 60ch; }
+  .two p b { color: var(--fg); font-weight: 500; }
+  pre { margin: 0; background: var(--term); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; font: 400 13px/1.6 var(--mono); overflow-x: auto; }
+  footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 18px; }
+
+  @media (max-width: 560px) { h1 { font-size: 27px; } .screen { padding: 10px; font-size: 12.5px; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>claude-ambient</h1>
+    <p class="pitch">A living band above the <a href="https://claude.com/claude-code">Claude Code</a> prompt, fed by Claude's work. <b>Eleven scenes</b>, each with its own sound: every tool call is a fish, a star, a wagon, a note. This page runs the mod's own scenes and plays its own sounds, so what you see and hear is what you get in the terminal.</p>
+    <div class="links">
+      <a href="https://github.com/barisdemirhan/claude-ambient">GitHub</a>
+      <a href="#install">Install</a>
+      <a href="#sound">How the sound is made</a>
+    </div>
+  </header>
+
+  <section class="terminal" aria-label="A terminal running the band">
+    <div class="bar"><i></i><i></i><i></i><span id="title">claude · /ambient aquarium</span></div>
+    <div class="screen">
+      <div class="log" id="log" aria-live="off"></div>
+      <canvas id="band" role="img" aria-label="The scene, animated"></canvas>
+      <div class="prompt">❯ <b id="typed"></b></div>
+      <div class="hint" id="hint">sound is off · press “Sound on”, then “Run a turn”</div>
+    </div>
+  </section>
+
+  <div class="controls">
+    <button class="go" id="turn" type="button">Run a turn</button>
+    <button id="sound" type="button" aria-pressed="false">Sound on</button>
+    <label for="volume">volume <input id="volume" type="range" min="0" max="100" value="55"></label>
+    <button id="fail" type="button">Make a call fail</button>
+    <span class="note" id="status"></span>
+  </div>
+
+  <div class="scenes" id="scenes"></div>
+
+  <div class="two">
+    <section id="install">
+      <h2>Install</h2>
+      <pre>claude plugin marketplace add barisdemirhan/claude-ambient
+claude plugin install ambient@claude-ambient</pre>
+      <p style="margin-top:10px">Restart Claude Code and type <b>/ambient</b> to pick a scene. The sound is off until you ask for it: <b>/ambient sound on</b>.</p>
+    </section>
+    <section id="sound">
+      <h2>How the sound is made</h2>
+      <p>Nothing here is a recording. Every bed and every chime is <b>synthesized from arithmetic</b>: filtered noise for rain and fire, plucked partials for bells and kalimbas, a little room around them. The whole lofi loop is eight bars written as numbers.</p>
+      <p>A tool call's kind picks its note on a pentatonic scale, so a turn of Claude's work is a small tune. However many sessions you have open, <b>one plays the bed</b>: the one you last used.</p>
+    </section>
+  </div>
+
+  <footer>MIT. Made by <a href="https://github.com/barisdemirhan">Barış Demirhan</a>. The mod reads the name of each tool call and whether it failed, and nothing else.</footer>
+</div>
+
+<script src="scenes.js"></script>
+<script id="synth" src="synth.js"></script>
+<script>
+(() => {
+  'use strict'
+
+  const { catalog, kinds, kindColors, scenes, canvasOf, rowsOf } = globalThis.AmbientScenes
+  const { SR, SCENES: SOUNDS } = globalThis.AmbientSynth
+  const HUES = { aquarium: '#42a5f5', bonsai: '#7cb342', city: '#90a4ae', stars: '#7986cb', weather: '#4fc3f7', train: '#e57373', life: '#26a69a', pulse: '#66bb6a', fire: '#ff8a65', matrix: '#00c853', lofi: '#f2b45e' }
+  // What Claude's calls look like in the transcript, by kind.
+  const CALLS = {
+    read: ['Read(hooks/band.tsx)', 'Read(README.md)', 'Read(hooks/kit.ts)'],
+    search: ['Grep("surface.post")', 'Glob(hooks/scenes/*.ts)'],
+    edit: ['Edit(hooks/scenes/train.ts)', 'Write(tests/ambient.test.ts)', 'Edit(hooks/register.tsx)'],
+    shell: ['Bash(claude plugin test .)', 'Bash(git status)'],
+    web: ['WebFetch(open-meteo.com)'],
+    agent: ['Agent(explore the scenes)'],
+    mcp: ['mcp__github__list_pull_requests'],
+    other: ['TodoWrite'],
+  }
+  const TURN = ['read', 'read', 'search', 'edit', 'edit', 'shell', 'read', 'web', 'edit', 'agent', 'edit', 'shell']
+  const CELL_W = 9
+  const CELL_H = 18
+  const ROWS = 5
+  const FG = '#d6d9e0'
+  const BED_MIX = 0.55
+  const EVENT_MIX = 0.6
+
+  const band = document.getElementById('band')
+  const log = document.getElementById('log')
+  const status = document.getElementById('status')
+  const context2d = band.getContext('2d')
+  let sceneId = 'aquarium'
+  let sim
+  let feed
+  let ticks = 0
+  let columns = 0
+  let seed = 20261002
+  let lines = []
+  let timers = []
+  let isTurn = false
+
+  const roll = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+
+    return seed / 4294967296
+  }
+  const envOf = () => ({ w: columns, h: ROWS, pw: columns, ph: ROWS * 2, ticks, feed, roll })
+  const today = new Date()
+
+  const freshFeed = () => ({
+    scene: sceneId,
+    isWorking: false,
+    calls: 0,
+    fails: 0,
+    kinds: kinds.map(() => 0),
+    turns: 3,
+    turn: 0,
+    turnKinds: kinds.map(() => 0),
+    log: [{ calls: 6, kind: 2 }, { calls: 4, kind: 0 }],
+    tree: { seed: 4242, turns: 34, shed: 0 },
+    city: { day: today.toISOString().slice(0, 10), edits: 46 },
+    hour: today.getHours(),
+    month: today.getMonth() + 1,
+    sky: null,
+    place: '',
+  })
+
+  // ── The band, drawn on a canvas the way the terminal draws it in cells ──
+  const start = () => {
+    const wide = band.parentElement.clientWidth - 28
+    columns = Math.max(24, Math.min(110, Math.floor(wide / CELL_W)))
+    const ratio = window.devicePixelRatio || 1
+    band.width = columns * CELL_W * ratio
+    band.height = ROWS * CELL_H * ratio
+    band.style.width = `${columns * CELL_W}px`
+    band.style.height = `${ROWS * CELL_H}px`
+    context2d.setTransform(ratio, 0, 0, ratio, 0, 0)
+    feed = { ...freshFeed(), isWorking: isTurn }
+    ticks = 0
+    sim = scenes[sceneId].start(envOf())
+  }
+
+  const paint = () => {
+    const canvas = canvasOf(columns, ROWS)
+    scenes[sceneId].paint(sim, canvas, envOf())
+    context2d.clearRect(0, 0, columns * CELL_W, ROWS * CELL_H)
+    context2d.textBaseline = 'middle'
+    context2d.textAlign = 'center'
+
+    rowsOf(canvas).forEach((runs, row) => {
+      let column = 0
+
+      for (const run of runs) {
+        const ink = run.color ?? FG
+        context2d.globalAlpha = run.dimColor ? 0.5 : 1
+        context2d.font = `${run.bold ? 600 : 400} 14px 'IBM Plex Mono', Menlo, monospace`
+
+        for (const glyph of run.text) {
+          const x = column * CELL_W
+          const y = row * CELL_H
+
+          if (run.backgroundColor !== undefined) {
+            context2d.fillStyle = run.backgroundColor
+            context2d.fillRect(x, y, CELL_W, CELL_H)
+          }
+
+          context2d.fillStyle = ink
+          const code = glyph.codePointAt(0)
+
+          if (glyph === '█') {
+            context2d.fillRect(x, y, CELL_W, CELL_H)
+          } else if (glyph === '▀') {
+            context2d.fillRect(x, y, CELL_W, CELL_H / 2)
+          } else if (glyph === '▄') {
+            context2d.fillRect(x, y + CELL_H / 2, CELL_W, CELL_H / 2)
+          } else if (code >= 0x2800 && code <= 0x28ff) {
+            // Braille, dot by dot: the pulse's trace.
+            const bits = code - 0x2800
+
+            for (const [bit, dx, dy] of [[1, 0, 0], [2, 0, 1], [4, 0, 2], [0x40, 0, 3], [8, 1, 0], [0x10, 1, 1], [0x20, 1, 2], [0x80, 1, 3]]) {
+              if (bits & bit) {
+                context2d.fillRect(x + 2 + dx * 4, y + 2 + dy * 4, 2, 2)
+              }
+            }
+          } else if (glyph !== ' ') {
+            context2d.fillText(glyph, x + CELL_W / 2, y + CELL_H / 2 + 1)
+          }
+
+          column += 1
+        }
+      }
+    })
+    context2d.globalAlpha = 1
+  }
+
+  // ── Sound: the synth's rings, looped without a seam by the browser ──────
+  let audio
+  let master
+  let worker
+  let asked = 0
+  const waiting = new Map()
+  const rendered = new Map()
+  let bed = { key: '', source: undefined, gain: undefined }
+  let isSoundOn = false
+
+  const startWorker = async () => {
+    try {
+      const source = await (await fetch('synth.js')).text()
+      const body = `${source}
+        onmessage = e => {
+          const { id, scene, group, name, kind } = e.data
+          const sound = globalThis.AmbientSynth.SCENES[scene][group][name](kind)
+          postMessage({ id, n: sound.n, l: sound.l, r: sound.r }, [sound.l.buffer, sound.r.buffer])
+        }`
+      worker = new Worker(URL.createObjectURL(new Blob([body], { type: 'text/javascript' })))
+      worker.onmessage = e => {
+        waiting.get(e.data.id)?.(e.data)
+        waiting.delete(e.data.id)
+      }
+    } catch {
+      worker = undefined
+    }
+  }
+
+  const soundOf = (scene, group, name, kind = 0) => {
+    const key = `${scene}/${group}/${name}/${kind}`
+
+    if (!rendered.has(key)) {
+      rendered.set(
+        key,
+        new Promise(resolve => {
+          if (worker === undefined) {
+            setTimeout(() => resolve(SOUNDS[scene][group][name](kind)), 20)
+
+            return
+          }
+
+          asked += 1
+          waiting.set(asked, resolve)
+          worker.postMessage({ id: asked, scene, group, name, kind })
+        }).then(sound => {
+          const buffer = audio.createBuffer(2, sound.n, SR)
+          buffer.copyToChannel(sound.l, 0)
+          buffer.copyToChannel(sound.r, 1)
+
+          return buffer
+        }),
+      )
+    }
+
+    return rendered.get(key)
+  }
+
+  const volume = () => Number(document.getElementById('volume').value) / 100
+
+  /** The bed the scene asks for now, started if another (or none) plays. */
+  const tune = async () => {
+    const name = scenes[sceneId].bed?.(sim, envOf()) ?? Object.keys(SOUNDS[sceneId].beds)[0]
+    const key = isSoundOn ? `${sceneId}/${name}` : ''
+
+    if (key === bed.key) {
+      return
+    }
+
+    if (bed.source !== undefined) {
+      const { source, gain } = bed
+      gain.gain.setTargetAtTime(0, audio.currentTime, 0.25)
+      setTimeout(() => source.stop(), 1200)
+    }
+
+    bed = { key, source: undefined, gain: undefined }
+
+    if (key === '') {
+      return
+    }
+
+    status.textContent = 'making the sound…'
+    const buffer = await soundOf(sceneId, 'beds', name)
+
+    if (bed.key !== key || bed.source !== undefined) {
+      return
+    }
+
+    const source = audio.createBufferSource()
+    const gain = audio.createGain()
+    source.buffer = buffer
+    source.loop = true
+    gain.gain.value = 0
+    gain.gain.setTargetAtTime(BED_MIX, audio.currentTime, 0.4)
+    source.connect(gain)
+    gain.connect(master)
+    source.start()
+    bed = { key, source, gain }
+    status.textContent = ''
+  }
+
+  const chime = async (name, kind = 0) => {
+    if (!isSoundOn) {
+      return
+    }
+
+    const buffer = await soundOf(sceneId, 'events', name, kind)
+    const source = audio.createBufferSource()
+    const gain = audio.createGain()
+    source.buffer = buffer
+    gain.gain.value = EVENT_MIX
+    source.connect(gain)
+    gain.connect(master)
+    source.start()
+  }
+
+  // ── A turn of Claude's work, as the mod's hooks would report it ────────
+  const hear = event => scenes[sceneId].hear(sim, event, envOf())
+
+  const say = (text, kind, isFail = false) => {
+    const line = document.createElement('div')
+    const mark = document.createElement('b')
+    mark.textContent = '⏺ '
+    mark.style.color = isFail ? 'var(--fail)' : kindColors[kind] ?? FG
+    line.append(mark, text)
+    line.className = isFail ? 'fail' : ''
+    lines = [...lines.slice(-3), line]
+    log.replaceChildren(...lines)
+  }
+
+  const call = kind => {
+    const index = kinds.indexOf(kind)
+    feed.calls += 1
+    feed.turn += 1
+    feed.kinds = feed.kinds.map((count, at) => count + (at === index ? 1 : 0))
+    feed.turnKinds = feed.turnKinds.map((count, at) => count + (at === index ? 1 : 0))
+
+    if (kind === 'edit') {
+      feed.city = { ...feed.city, edits: feed.city.edits + 1 }
+    }
+
+    const names = CALLS[kind]
+    say(names[Math.floor(Math.random() * names.length)], kind)
+    hear({ type: 'tool', kind })
+    void chime('call', index)
+  }
+
+  const fail = () => {
+    feed.fails += 1
+    feed.tree = { ...feed.tree, shed: feed.tree.shed + 1 }
+    say('Bash(bun test) · exit 1', 'shell', true)
+    hear({ type: 'fail' })
+    void chime('fail')
+  }
+
+  const endTurn = () => {
+    feed.turns += 1
+    feed.tree = { ...feed.tree, turns: feed.tree.turns + 1, shed: Math.max(0, feed.tree.shed - 2) }
+    feed.log = [...feed.log, { calls: feed.turn, kind: feed.turnKinds.indexOf(Math.max(...feed.turnKinds)) }].slice(-12)
+    feed.turn = 0
+    feed.turnKinds = kinds.map(() => 0)
+    hear({ type: 'turn' })
+    feed.isWorking = false
+    hear({ type: 'work', isOn: false })
+    void chime('turn')
+    isTurn = false
+    document.getElementById('turn').disabled = false
+    document.getElementById('typed').textContent = ''
+    say('Done.', 'other')
+  }
+
+  const runTurn = () => {
+    if (isTurn) {
+      return
+    }
+
+    isTurn = true
+    document.getElementById('turn').disabled = true
+    document.getElementById('typed').textContent = 'add a sound to every scene'
+    feed.isWorking = true
+    hear({ type: 'work', isOn: true })
+    let at = 900
+
+    TURN.forEach((kind, index) => {
+      timers.push(setTimeout(() => call(kind), at))
+      at += 650 + Math.random() * 1300
+
+      if (index === 6) {
+        timers.push(setTimeout(fail, at))
+        at += 2000
+      }
+    })
+    timers.push(setTimeout(endTurn, at + 500))
+  }
+
+  const pick = id => {
+    for (const timer of timers) {
+      clearTimeout(timer)
+    }
+
+    timers = []
+    isTurn = false
+    sceneId = id
+    lines = []
+    log.replaceChildren()
+    document.getElementById('turn').disabled = false
+    document.getElementById('typed').textContent = ''
+    document.getElementById('title').textContent = `claude · /ambient ${id}`
+    document.documentElement.style.setProperty('--hue', HUES[id])
+
+    for (const button of document.querySelectorAll('#scenes button')) {
+      button.setAttribute('aria-pressed', String(button.dataset.scene === id))
+    }
+
+    start()
+    void tune()
+  }
+
+  const list = document.getElementById('scenes')
+
+  for (const scene of catalog) {
+    const button = document.createElement('button')
+    const name = document.createElement('strong')
+    const about = document.createElement('span')
+    button.type = 'button'
+    button.dataset.scene = scene.id
+    button.style.setProperty('--hue', HUES[scene.id])
+    name.textContent = scene.name
+    about.textContent = scene.about
+    button.append(name, about)
+    button.addEventListener('click', () => pick(scene.id))
+    list.append(button)
+  }
+
+  document.getElementById('turn').addEventListener('click', runTurn)
+  document.getElementById('fail').addEventListener('click', fail)
+  document.getElementById('volume').addEventListener('input', () => {
+    if (master !== undefined) {
+      master.gain.setTargetAtTime(volume(), audio.currentTime, 0.05)
+    }
+  })
+  document.getElementById('sound').addEventListener('click', async e => {
+    if (audio === undefined) {
+      audio = new AudioContext({ sampleRate: SR })
+      master = audio.createGain()
+      master.gain.value = volume()
+      master.connect(audio.destination)
+      await startWorker()
+    }
+
+    await audio.resume()
+    isSoundOn = !isSoundOn
+    e.currentTarget.setAttribute('aria-pressed', String(isSoundOn))
+    e.currentTarget.textContent = isSoundOn ? 'Sound off' : 'Sound on'
+    document.getElementById('hint').textContent = isSoundOn
+      ? 'sound is on · each scene has a bed, and a voice for calls, failures and the end of a turn'
+      : 'sound is off · press “Sound on”, then “Run a turn”'
+    void tune()
+  })
+
+  let resizing
+  window.addEventListener('resize', () => {
+    clearTimeout(resizing)
+    resizing = setTimeout(start, 200)
+  })
+
+  // `?scene=train` opens on a scene, `&turn` runs a turn at once.
+  const query = new URLSearchParams(location.search)
+  pick(query.get('scene') in scenes ? query.get('scene') : 'aquarium')
+
+  if (query.has('turn')) {
+    runTurn()
+  }
+
+  setInterval(() => {
+    ticks += 1
+    scenes[sceneId].step(sim, envOf())
+    paint()
+
+    if (isSoundOn) {
+      void tune()
+    }
+  }, 100)
+})()
+</script>
+</body>
+</html>
