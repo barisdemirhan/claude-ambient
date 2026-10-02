@@ -118,6 +118,8 @@ Its hooks, all in `hooks/register.tsx`:
 - `tool.call` counts Claude's calls while the band is on, as described above, sounds them, and passes each call and its result on untouched.
 - `turn.start` and `turn.complete` count the turns: the second grows the bonsai, keeps the bonsai and the skyline, sounds the turn's end, and with shuffle on picks the next scene. Both pass the event on unchanged and decide nothing.
 
+The same as a privacy policy: [PRIVACY.md](PRIVACY.md).
+
 The files under `tests/` run only under `claude plugin test`. They are never loaded in a session. The files under `tools/` and `docs/` are never loaded by the mod either: they make the sounds and the page.
 
 ## Develop
