@@ -52,8 +52,6 @@ const QUIET_WORDS = ['stop', 'mute', 'quiet', 'silent']
 const LOUD_WORDS = ['play', 'unmute']
 // Open-Meteo, asked only once the person names a place: where the place is,
 // and what the sky does over it, every quarter of an hour.
-const GEOCODE = 'https://geocoding-api.open-meteo.com/v1/search'
-const FORECAST = 'https://api.open-meteo.com/v1/forecast'
 const SKY_EVERY_MS = 15 * 60_000
 const MIN_ROWS = 3
 const MAX_ROWS = 10
@@ -146,7 +144,9 @@ const toCount = (value: unknown): number =>
     : 0
 
 const fieldOf = (value: unknown, key: string): unknown =>
-  typeof value === 'object' && value !== null ? Reflect.get(value, key) : undefined
+  typeof value === 'object' && value !== null
+    ? Object.entries(value).find(([name]) => name === key)?.[1]
+    : undefined
 
 const sceneOf = (id: unknown) => SCENES.find(scene => scene.id === id)
 
@@ -521,11 +521,9 @@ const soundText = async ($: EngineInterface, word: string): Promise<string> => {
 }
 
 /** What a host answered as JSON; undefined offline, refused, or not JSON. */
-const fetched = async ($: EngineInterface, url: string): Promise<unknown> => {
+const jsonOf = (answer: { ok: boolean; text: string } | undefined): unknown => {
   try {
-    const { ok, text } = await $.http.fetch(url)
-
-    return ok ? JSON.parse(text) : undefined
+    return answer?.ok === true ? JSON.parse(answer.text) : undefined
   } catch {
     return undefined
   }
@@ -550,13 +548,14 @@ const forecast = async ($: EngineInterface): Promise<void> => {
   stage.forecaster ??= $.clock.every(SKY_EVERY_MS, () => {
     void forecast($)
   })
-  const current = fieldOf(
-    await fetched(
-      $,
-      `${FORECAST}?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,weather_code,is_day`,
-    ),
-    'current',
-  )
+  // The one host the forecast is asked of, and all that is sent: the place's
+  // latitude and longitude.
+  const answer = await $.http
+    .fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,weather_code,is_day`,
+    )
+    .catch(() => undefined)
+  const current = fieldOf(jsonOf(answer), 'current')
   const code = fieldOf(current, 'weather_code')
   const temperature = fieldOf(current, 'temperature_2m')
 
@@ -597,13 +596,13 @@ const placeText = async ($: EngineInterface, words: string): Promise<string> => 
     return "Ambient could not tell a city from this machine's time zone: /ambient weather <city>."
   }
 
-  const found = fieldOf(
-    fieldOf(
-      await fetched($, `${GEOCODE}?count=1&language=en&name=${encodeURIComponent(asked)}`),
-      'results',
-    ),
-    '0',
-  )
+  // The one host a place is looked up at, and all that is sent: its name.
+  const answer = await $.http
+    .fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(asked)}`,
+    )
+    .catch(() => undefined)
+  const found = fieldOf(fieldOf(jsonOf(answer), 'results'), '0')
   const place = toPlace(found)
 
   if (place === null) {
