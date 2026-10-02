@@ -1006,7 +1006,8 @@ export const register: Register = on => {
 
   // The band's controls under the hint line: a switch for the band, one for
   // the sound with its volume beside it, and a button that opens the picker
-  // and closes it again. The engine's own line is
+  // and closes it again, going on to another row where this one is too
+  // narrow for them. The engine's own line is
   // drawn first, as it is, with what other mods added to it. A press needs a
   // pointer, which the terminal has only in its fullscreen layout: on the
   // main screen the scene and its sound are said at the end of the hint line.
@@ -1037,7 +1038,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {line}
-        <Box gap={2}>
+        <Box columnGap={2} flexWrap="wrap">
           <Text dimColor>♪ {now.isOn ? now.scene : 'ambient'}</Text>
           <Button
             key="band"
