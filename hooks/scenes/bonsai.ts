@@ -1,4 +1,4 @@
-import { DIM, FG, clamp, dot, hash, pick, rngOf, stamp, write } from '../kit'
+import { DIM, FG, clamp, dot, hash, pick, rngOf, sign, stamp } from '../kit'
 import type { Canvas, Env, Rng, Scene } from '../kit'
 
 // One pixel of the tree: its place from the pot's middle and from the pot's
@@ -308,6 +308,6 @@ export const bonsai: Scene<Garden> = {
     }
 
     const caption = turns === 1 ? '1 turn old' : `${turns} turns old`
-    write(canvas, 1, 0, turns === 0 ? 'just planted' : caption, FG, DIM)
+    sign(canvas, 1, 0, turns === 0 ? 'just planted' : caption, FG, DIM)
   },
 }

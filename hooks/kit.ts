@@ -213,6 +213,22 @@ export const wipe = (canvas: Canvas, x: number, row: number, wide: number): void
   }
 }
 
+/**
+ * Writes a caption over the scene: its cells are emptied first, so nothing
+ * of the scene shows through the gaps between its words.
+ */
+export const sign = (
+  canvas: Canvas,
+  x: number,
+  row: number,
+  text: string,
+  color = FG,
+  style = 0,
+): void => {
+  wipe(canvas, Math.floor(x), Math.floor(row), [...text].length)
+  write(canvas, x, row, text, color, style)
+}
+
 /** True where a cell holds neither a glyph nor a pixel. */
 export const isClear = (canvas: Canvas, x: number, row: number): boolean =>
   x >= 0 &&

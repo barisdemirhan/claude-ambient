@@ -1,6 +1,6 @@
 import { KIND_COLORS, kindAt } from '../catalog'
 import type { Kind } from '../catalog'
-import { DIM, FAINT, FG, clamp, dot, hash, shade, stamp, write } from '../kit'
+import { DIM, FAINT, FG, clamp, dot, hash, shade, sign, stamp } from '../kit'
 import type { Canvas, Env, Scene } from '../kit'
 
 // A wagon coupled behind the engine: `lag` is how far it still trails the
@@ -152,7 +152,7 @@ const paintStation = (canvas: Canvas, railway: Railway, env: Env): void => {
   }
 
   stamp(canvas, x, top, STATION, STATION_COLORS)
-  write(canvas, x, Math.floor(top / 2) - 1, `Turn ${railway.stop}`, FG, DIM)
+  sign(canvas, x, Math.floor(top / 2) - 1, `Turn ${railway.stop}`, FG, DIM)
 }
 
 export const train: Scene<Railway> = {
@@ -296,7 +296,7 @@ export const train: Scene<Railway> = {
     const count = railway.wagons.length
 
     if (count > 0) {
-      write(canvas, 1, 0, `${count} ${count === 1 ? 'wagon' : 'wagons'}`, FG, DIM)
+      sign(canvas, 1, 0, `${count} ${count === 1 ? 'wagon' : 'wagons'}`, FG, DIM)
     }
   },
 }

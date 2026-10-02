@@ -10,6 +10,7 @@ import {
   pick,
   rngOf,
   seedOf,
+  sign,
   write,
 } from '../kit'
 import type { Canvas, Env, Scene } from '../kit'
@@ -309,6 +310,6 @@ export const city: Scene<Town> = {
       floors === 0
         ? 'empty lots · every edit builds a floor'
         : `${floors} ${floors === 1 ? 'floor' : 'floors'} today`
-    write(canvas, 1, 0, caption, FG, DIM)
+    sign(canvas, 1, 0, caption, FG, DIM)
   },
 }

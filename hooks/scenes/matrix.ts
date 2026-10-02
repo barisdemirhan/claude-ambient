@@ -69,6 +69,16 @@ export const matrix: Scene<Rain> = {
       .map(drop => ({ ...drop, y: drop.y + drop.speed }))
       .filter(drop => drop.y - drop.tail < env.h)
 
+    // The rain thins out at rest, but the band is never left bare: with no
+    // drop on it, one starts at its top edge at once.
+    const isBare = !rain.drops.some(
+      drop => drop.y >= 0 && Math.floor(drop.y) - drop.tail + 1 < env.h,
+    )
+
+    if (isBare) {
+      rain.drops.push({ ...dropOf(env, FG, false), y: 0 })
+    }
+
     if (rain.message !== undefined) {
       rain.message = rain.message + 1 < MESSAGE_TICKS ? rain.message + 1 : undefined
     }

@@ -1,4 +1,4 @@
-import { DIM, FG, clamp, dot, hash, isClear, stamp, write } from '../kit'
+import { DIM, FG, clamp, dot, hash, isClear, sign, stamp, write } from '../kit'
 import type { Canvas, Env, Scene } from '../kit'
 
 type Cloud = { x: number; y: number; wide: number; puff: number }
@@ -341,7 +341,7 @@ export const weather: Scene<Climate> = {
     if (env.feed.sky !== null) {
       // The real sky, named: right of the sun, clear of the band's own mark.
       const caption = `${env.feed.place} ${Math.round(env.feed.sky.temperature)}° ${outsideOf(env.feed.sky.code).name}`
-      write(canvas, env.w - caption.length - 5, 0, caption, FG, DIM)
+      sign(canvas, env.w - caption.length - 5, 0, caption, FG, DIM)
     }
   },
 }

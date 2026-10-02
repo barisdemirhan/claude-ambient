@@ -588,6 +588,12 @@ test('the weather follows the real sky over a place the person names, and asks t
 
 test('the hint line under the prompt says what plays, beside what other mods put there', async ($, on) => {
   world(on)
+  const opened: string[] = []
+  on('ui.open', (_$, e) => {
+    opened.push(e.id)
+
+    return { value: { isPlaced: true } }
+  })
   // The engine's own drawing of the two sites, as text a test can read.
   on('ui.render', ($$, e) => {
     const { Text } = $$.ui.resolve(e)
@@ -633,15 +639,38 @@ test('the hint line under the prompt says what plays, beside what other mods put
   expect(await hintWith(' '.repeat(80))).toContain('♪ lofi 55%')
   expect(await hintWith('x'.repeat(80))).toBe(`auto mode on|${'x'.repeat(80)}|`)
 
-  // Off the terminal the label goes among the mode labels.
-  const modes = await $.ui.mount({
-    plugin: 'ambient',
-    surface: 'desktop',
-    component: 'SessionMode',
-    props: { modes: ['auto'] },
-  })
-  expect((await modes.find({ type: 'Text' }))?.text).toBe('modes: auto, ♪ lofi 55%')
-  await modes.unmount()
+  // Where there is a pointer (the terminal's fullscreen layout, the desktop
+  // app) the line under the hint holds the controls instead: a switch for
+  // the band, one for the sound, a button for the picker.
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'ambient',
+      surface,
+      component: 'PromptHint',
+      props: { isDraft: false, isWorking: false, hint: 'auto mode on' },
+      viewport: { columns: 100, rows: 40, isFullscreen: true },
+    })
+    const labels = async () => (await ui.findAll({ type: 'Button' })).map(button => button.text)
+    // The engine's own line is still drawn, untouched, over the controls.
+    expect(await ui.find({ type: 'Text', text: 'auto mode on||' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '♪ lofi' })).toBeDefined()
+    expect(await labels()).toEqual(['● band', '● sound 55%', 'scenes'])
+
+    await ui.press({ key: 'sound' })
+    expect(await labels()).toEqual(['● band', '○ sound', 'scenes'])
+    expect(await typed($, 'list')).toContain('sound off')
+    await ui.press({ key: 'band' })
+    expect(await labels()).toEqual(['○ band', '○ sound', 'scenes'])
+    expect(await ui.find({ type: 'Text', text: '♪ ambient' })).toBeDefined()
+    expect(await typed($, 'list')).toContain('Ambient is off')
+
+    await ui.press({ key: 'scenes' })
+    expect(opened).toHaveLength(surface === 'terminal' ? 1 : 2)
+    await ui.press({ key: 'band' })
+    await ui.press({ key: 'sound' })
+    expect(await labels()).toEqual(['● band', '● sound 55%', 'scenes'])
+    await ui.unmount()
+  }
 
   expect(await typed($, 'hint off')).toBe('Ambient is off the hint line.')
   expect(await hintWith()).toBe('auto mode on||')

@@ -1,6 +1,6 @@
 import { FAIL_COLOR, KINDS, KIND_COLORS, kindAt } from '../catalog'
 import type { Kind } from '../catalog'
-import { BOLD, DIM, FG, hash, isClear, pick, write } from '../kit'
+import { BOLD, DIM, FG, hash, isClear, pick, sign, write } from '../kit'
 import type { Canvas, Env, Scene } from '../kit'
 
 // A star at a place in the sky, which scrolls: `x` counts cells from where
@@ -243,7 +243,7 @@ export const stars: Scene<Sky> = {
 
     if (sky.label !== undefined) {
       const x = Math.min(Math.max(1, sky.label.x - cam), env.w - sky.label.text.length - 1)
-      write(canvas, x, sky.label.row, sky.label.text, sky.label.color)
+      sign(canvas, x, sky.label.row, sky.label.text, sky.label.color)
     }
   },
 }

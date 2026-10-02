@@ -750,6 +750,22 @@ const folded = async (
   await update($, world, () => after)
 }
 
+/** Opens the scene picker; the band shows for as long as it is open. */
+const picking = async ($: EngineInterface): Promise<string> => {
+  const opened = await $.ui.open({
+    id: PANE,
+    title: 'Ambient',
+    focus: true,
+    closeOnEscape: true,
+    rows: PICKER_ROWS,
+  })
+  await update($, isPicking, () => opened.isPlaced)
+
+  return opened.isPlaced
+    ? 'Ambient: pick a scene, esc closes the picker.'
+    : `Ambient's picker has no room to show: ${opened.reason}. /ambient list names the scenes.`
+}
+
 export const register: Register = on => {
   // The store is every session's: what this one adds goes in as a difference,
   // so two sessions at once grow one tree and build one skyline.
@@ -853,20 +869,7 @@ export const register: Register = on => {
     }
 
     if (verb === '' || verb === 'pick') {
-      const opened = await $.ui.open({
-        id: PANE,
-        title: 'Ambient',
-        focus: true,
-        closeOnEscape: true,
-        rows: PICKER_ROWS,
-      })
-      await update($, isPicking, () => opened.isPlaced)
-
-      return {
-        text: opened.isPlaced
-          ? 'Ambient: pick a scene, esc closes the picker.'
-          : `Ambient's picker has no room to show: ${opened.reason}. /ambient list names the scenes.`,
-      }
+      return { text: await picking($) }
     }
 
     if (QUIET_WORDS.includes(verb) || LOUD_WORDS.includes(verb)) {
@@ -992,39 +995,55 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The scene and its sound at the end of the hint line under the prompt,
-  // beside what other mods put there. The hint's text is the engine's to
-  // draw: this only adds to its tail.
+  // The band's controls under the hint line: a switch for the band, one for
+  // the sound, and a button that opens the picker. The engine's own line is
+  // drawn first, as it is, with what other mods added to it. A press needs a
+  // pointer, which the terminal has only in its fullscreen layout: on the
+  // main screen the scene and its sound are said at the end of the hint line.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const now = await read($, settings)
+    const hasPointer = e.surface !== 'terminal' || e.viewport?.isFullscreen === true
 
-    if (!now.isOn || !now.hasHint || e.surface !== 'terminal') {
+    if (!now.hasHint) {
       return next(e)
     }
 
-    const tail = tailed(
-      e.props.hint,
-      e.props.tail ?? '',
-      hintOf(now),
-      e.viewport?.columns ?? 0,
+    if (!hasPointer) {
+      const tail = tailed(
+        e.props.hint,
+        e.props.tail ?? '',
+        hintOf(now),
+        e.viewport?.columns ?? 0,
+      )
+
+      return now.isOn ? next({ ...e, props: { ...e.props, tail } }) : next(e)
+    }
+
+    const line = await next(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const isHeard = now.isOn && now.isSoundOn && now.volume > 0
+
+    return (
+      <Box flexDirection="column">
+        {line}
+        <Box gap={2}>
+          <Text dimColor>♪ {now.isOn ? now.scene : 'ambient'}</Text>
+          <Button
+            key="band"
+            dimColor
+            label={`${now.isOn ? '●' : '○'} band`}
+            onPress={() => stored($, kept => ({ isOn: !kept.isOn }))}
+          />
+          <Button
+            key="sound"
+            dimColor
+            label={isHeard ? `● sound ${now.volume}%` : '○ sound'}
+            onPress={() => stored($, kept => ({ isSoundOn: !kept.isSoundOn }))}
+          />
+          <Button key="scenes" dimColor label="scenes" onPress={() => picking($)} />
+        </Box>
+      </Box>
     )
-
-    return next({ ...e, props: { ...e.props, tail } })
-  })
-
-  // Only the terminal draws a hint's tail: elsewhere the label goes among
-  // the mode labels beside the hint line.
-  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    const now = await read($, settings)
-
-    if (!now.isOn || !now.hasHint || e.surface === 'terminal') {
-      return next(e)
-    }
-
-    return next({
-      ...e,
-      props: { ...e.props, modes: [...e.props.modes, hintOf(now)] },
-    })
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

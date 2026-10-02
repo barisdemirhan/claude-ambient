@@ -73,6 +73,22 @@
 
   h2 { font: 600 18px var(--mono); margin: 0 0 10px; }
   .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 26px 34px; }
+  .more { display: grid; gap: 14px; }
+  .more h2 { margin: 0; }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 26px 34px; }
+  .features article { display: grid; gap: 8px; align-content: start; min-width: 0; }
+  .features h3 { font: 600 15px var(--mono); margin: 0; }
+  .features p { margin: 0; color: var(--muted); max-width: 60ch; }
+  .features p b, .features code { color: var(--fg); font-weight: 500; }
+  .features code { font: 400 13px var(--mono); }
+  .sky { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sky input { flex: 1 1 150px; min-width: 0; font: 400 14px var(--mono); color: var(--fg); background: var(--term); border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px; }
+  .sky input::placeholder { color: var(--muted); }
+  .features pre { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  .commands { overflow-x: auto; }
+  td { padding: 6px 14px 6px 0; border-top: 1px solid var(--line); vertical-align: top; color: var(--muted); }
+  td:first-child { font: 400 13px var(--mono); color: var(--fg); white-space: nowrap; }
   .two p { margin: 0 0 10px; color: var(--muted); max-width: 60ch; }
   .two p b { color: var(--fg); font-weight: 500; }
   pre { margin: 0; background: var(--term); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; font: 400 13px/1.6 var(--mono); overflow-x: auto; }
@@ -112,6 +128,51 @@
   </div>
 
   <div class="scenes" id="scenes"></div>
+
+  <section class="more">
+    <h2>What else it does</h2>
+    <div class="features">
+      <article>
+        <h3>The weather can be the real sky</h3>
+        <p><code>/ambient weather istanbul</code> makes the weather scene follow the sky over a place: clear, cloud, rain, snow or thunder, day or night, with the place and the temperature in the corner. The sound follows it too. Claude's failed calls still storm on top. <code>/ambient weather auto</code> takes the city of your time zone.</p>
+        <form class="sky" id="sky-form">
+          <input id="city" type="text" placeholder="Try it: your city" autocomplete="off" aria-label="A city">
+          <button type="submit">Follow this sky</button>
+        </form>
+        <p class="note" id="sky-note">Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a>. The mod asks nothing of the network until you name a place.</p>
+      </article>
+      <article>
+        <h3>One session plays, however many are open</h3>
+        <p>Ten terminals do not make ten rainstorms. <b>The session you last used plays the bed</b>; the others fall silent within two seconds, and one of them takes over when it ends. The short sounds of calls stay each session's own. A bed loops with no gap: each play crosses into the next.</p>
+      </article>
+      <article>
+        <h3>Switches under the prompt</h3>
+        <p>In the fullscreen terminal and the desktop app, a row under the hint line turns the band and the sound on and off and opens the scene picker, with a click.</p>
+        <pre>♪ lofi  [ ● band ]  [ ● sound 55% ]  [ scenes ]</pre>
+      </article>
+      <article>
+        <h3>Some of it lasts</h3>
+        <p>The <b>bonsai</b> grows a little with every finished turn and is still there next week; it wears the season on your clock. The <b>skyline</b> is built from the day's edits and starts over each morning. The city and the weather know night from day.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="more">
+    <h2>Commands</h2>
+    <div class="commands">
+      <table>
+        <tr><td>/ambient</td><td>Opens the picker: a key for every scene and setting</td></tr>
+        <tr><td>/ambient lofi</td><td>Picks a scene by name, by the start of it, or with <code>next</code> and <code>prev</code></td></tr>
+        <tr><td>/ambient sound</td><td>The sound on or off; <code>mute</code>, <code>stop</code> and <code>play</code> work too</td></tr>
+        <tr><td>/ambient volume 40</td><td>How loud, 0 to 100, or <code>up</code> and <code>down</code></td></tr>
+        <tr><td>/ambient weather &lt;city&gt;</td><td>The real sky over a place; <code>auto</code> or <code>off</code></td></tr>
+        <tr><td>/ambient shuffle</td><td>A new scene with every turn</td></tr>
+        <tr><td>/ambient rows 5</td><td>How tall the band is, 3 to 10 rows</td></tr>
+        <tr><td>/ambient when</td><td>Show always, or only while Claude works</td></tr>
+        <tr><td>/ambient off</td><td>Takes the band and its sound away; <code>on</code> brings them back</td></tr>
+      </table>
+    </div>
+  </section>
 
   <div class="two">
     <section id="install">
@@ -171,6 +232,9 @@ claude plugin install ambient@claude-ambient</pre>
   let lines = []
   let timers = []
   let isTurn = false
+  // The real sky, once the visitor names a place: what the mod keeps too.
+  let sky = null
+  let place = ''
 
   const roll = () => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
@@ -194,8 +258,8 @@ claude plugin install ambient@claude-ambient</pre>
     city: { day: today.toISOString().slice(0, 10), edits: 46 },
     hour: today.getHours(),
     month: today.getMonth() + 1,
-    sky: null,
-    place: '',
+    sky,
+    place,
   })
 
   // ── The band, drawn on a canvas the way the terminal draws it in cells ──
@@ -500,6 +564,44 @@ claude plugin install ambient@claude-ambient</pre>
     list.append(button)
   }
 
+  // The real sky over a city, asked of Open-Meteo as the mod asks it.
+  const answerOf = async url => {
+    const answer = await fetch(url)
+
+    return answer.ok ? answer.json() : undefined
+  }
+
+  document.getElementById('sky-form').addEventListener('submit', async e => {
+    e.preventDefault()
+    const note = document.getElementById('sky-note')
+    const city = document.getElementById('city').value.trim()
+
+    if (city === '') {
+      return
+    }
+
+    note.textContent = 'Asking Open-Meteo…'
+
+    try {
+      const found = (await answerOf(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(city)}`))?.results?.[0]
+      const now = found && (await answerOf(`https://api.open-meteo.com/v1/forecast?latitude=${found.latitude}&longitude=${found.longitude}&current=temperature_2m,weather_code,is_day`))?.current
+
+      if (!now) {
+        note.textContent = `No place called "${city}" was found.`
+
+        return
+      }
+
+      sky = { code: now.weather_code, isDay: now.is_day !== 0, temperature: now.temperature_2m }
+      place = found.name
+      note.textContent = `The scene above now follows the sky over ${found.name}${found.country ? `, ${found.country}` : ''}. Weather data by Open-Meteo.com.`
+      pick('weather')
+      band.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } catch {
+      note.textContent = 'Open-Meteo could not be reached.'
+    }
+  })
+
   document.getElementById('turn').addEventListener('click', runTurn)
   document.getElementById('fail').addEventListener('click', fail)
   document.getElementById('volume').addEventListener('input', () => {
@@ -532,12 +634,18 @@ claude plugin install ambient@claude-ambient</pre>
     resizing = setTimeout(start, 200)
   })
 
-  // `?scene=train` opens on a scene, `&turn` runs a turn at once.
+  // `?scene=train` opens on a scene, `&turn` runs a turn at once, and
+  // `?sky=istanbul` follows a city's sky.
   const query = new URLSearchParams(location.search)
   pick(query.get('scene') in scenes ? query.get('scene') : 'aquarium')
 
   if (query.has('turn')) {
     runTurn()
+  }
+
+  if (query.has('sky')) {
+    document.getElementById('city').value = query.get('sky')
+    document.getElementById('sky-form').requestSubmit()
   }
 
   setInterval(() => {
