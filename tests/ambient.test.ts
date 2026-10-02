@@ -589,10 +589,16 @@ test('the weather follows the real sky over a place the person names, and asks t
 test('the hint line under the prompt says what plays, beside what other mods put there', async ($, on) => {
   world(on)
   const opened: string[] = []
+  const closed: string[] = []
   on('ui.open', (_$, e) => {
     opened.push(e.id)
 
     return { value: { isPlaced: true } }
+  })
+  on('ui.close', (_$, e) => {
+    closed.push(e.id)
+
+    return { value: undefined }
   })
   // The engine's own drawing of the two sites, as text a test can read.
   on('ui.render', ($$, e) => {
@@ -654,21 +660,36 @@ test('the hint line under the prompt says what plays, beside what other mods put
     // The engine's own line is still drawn, untouched, over the controls.
     expect(await ui.find({ type: 'Text', text: 'auto mode on||' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '♪ lofi' })).toBeDefined()
-    expect(await labels()).toEqual(['● band', '● sound 55%', 'scenes'])
+    expect(await labels()).toEqual(['● band', '● sound', '-', '+', 'scenes'])
+    expect(await ui.find({ type: 'Text', text: '55%' })).toBeDefined()
 
     await ui.press({ key: 'sound' })
-    expect(await labels()).toEqual(['● band', '○ sound', 'scenes'])
+    expect(await labels()).toEqual(['● band', '○ sound', '-', '+', 'scenes'])
     expect(await typed($, 'list')).toContain('sound off')
     await ui.press({ key: 'band' })
-    expect(await labels()).toEqual(['○ band', '○ sound', 'scenes'])
+    expect((await labels()).slice(0, 2)).toEqual(['○ band', '○ sound'])
     expect(await ui.find({ type: 'Text', text: '♪ ambient' })).toBeDefined()
     expect(await typed($, 'list')).toContain('Ambient is off')
-
-    await ui.press({ key: 'scenes' })
-    expect(opened).toHaveLength(surface === 'terminal' ? 1 : 2)
     await ui.press({ key: 'band' })
     await ui.press({ key: 'sound' })
-    expect(await labels()).toEqual(['● band', '● sound 55%', 'scenes'])
+
+    // The volume beside the sound goes down and up by a step.
+    await ui.press({ key: 'quieter' })
+    await ui.press({ key: 'quieter' })
+    expect(await ui.find({ type: 'Text', text: '35%' })).toBeDefined()
+    await ui.press({ key: 'louder' })
+    await ui.press({ key: 'louder' })
+    expect(await typed($, 'list')).toContain('sound 55%')
+
+    // The button opens the picker, and pressed again closes it.
+    const before = { opened: opened.length, closed: closed.length }
+    await ui.press({ key: 'scenes' })
+    expect(opened).toHaveLength(before.opened + 1)
+    expect((await labels()).at(-1)).toBe('× scenes')
+    await ui.press({ key: 'scenes' })
+    expect(closed).toHaveLength(before.closed + 1)
+    expect(opened).toHaveLength(before.opened + 1)
+    expect((await labels()).at(-1)).toBe('scenes')
     await ui.unmount()
   }
 

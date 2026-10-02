@@ -72,7 +72,7 @@ Weather data by [Open-Meteo.com](https://open-meteo.com/), under CC BY 4.0. Thei
 | `/ambient off`, `/ambient on` | Takes the band away, and brings it back. While it is off nothing is counted and nothing sounds |
 | `/ambient sound [on\|off]` | The scene's sound. Off to begin with. `/ambient mute` and `/ambient stop` turn it off, `/ambient play` turns it on |
 | `/ambient volume <0-100\|up\|down>` | How loud. 55 to begin with |
-| `/ambient hint [on\|off]` | The controls under the hint line: `♪ lofi  [ ● band ]  [ ● sound 55% ]  [ scenes ]`. A click switches the band or the sound, or opens the picker. They need a pointer, so they show in the terminal's fullscreen layout and the desktop app; on the terminal's main screen the hint line ends in `♪ lofi 55%` instead |
+| `/ambient hint [on\|off]` | The controls under the hint line: `♪ lofi  [ ● band ]  [ ● sound ]  [ - ] 55% [ + ]  [ scenes ]`. A click switches the band or the sound, turns the volume down or up, or opens the picker and closes it again. They need a pointer, so they show in the terminal's fullscreen layout and the desktop app; on the terminal's main screen the hint line ends in `♪ lofi 55%` instead |
 | `/ambient weather <city\|auto\|off>` | The place whose real sky the weather scene follows |
 | `/ambient shuffle [on\|off]` | A new scene with every turn |
 | `/ambient rows <3-10>` | How tall the band is. Five rows to begin with |

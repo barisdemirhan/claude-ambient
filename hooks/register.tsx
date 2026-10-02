@@ -766,6 +766,16 @@ const picking = async ($: EngineInterface): Promise<string> => {
     : `Ambient's picker has no room to show: ${opened.reason}. /ambient list names the scenes.`
 }
 
+/** Opens the picker, or closes it when it is open: the hint line's button. */
+const toggled = async ($: EngineInterface): Promise<void> => {
+  if (await read($, isPicking)) {
+    await $.ui.close({ id: PANE })
+    await update($, isPicking, () => false)
+  } else {
+    await picking($)
+  }
+}
+
 export const register: Register = on => {
   // The store is every session's: what this one adds goes in as a difference,
   // so two sessions at once grow one tree and build one skyline.
@@ -996,7 +1006,8 @@ export const register: Register = on => {
   })
 
   // The band's controls under the hint line: a switch for the band, one for
-  // the sound, and a button that opens the picker. The engine's own line is
+  // the sound with its volume beside it, and a button that opens the picker
+  // and closes it again. The engine's own line is
   // drawn first, as it is, with what other mods added to it. A press needs a
   // pointer, which the terminal has only in its fullscreen layout: on the
   // main screen the scene and its sound are said at the end of the hint line.
@@ -1022,6 +1033,7 @@ export const register: Register = on => {
     const line = await next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     const isHeard = now.isOn && now.isSoundOn && now.volume > 0
+    const isOpen = await read($, isPicking)
 
     return (
       <Box flexDirection="column">
@@ -1037,10 +1049,34 @@ export const register: Register = on => {
           <Button
             key="sound"
             dimColor
-            label={isHeard ? `● sound ${now.volume}%` : '○ sound'}
+            label={`${isHeard ? '●' : '○'} sound`}
             onPress={() => stored($, kept => ({ isSoundOn: !kept.isSoundOn }))}
           />
-          <Button key="scenes" dimColor label="scenes" onPress={() => picking($)} />
+          <Box gap={1}>
+            <Button
+              key="quieter"
+              dimColor
+              label="-"
+              onPress={() =>
+                stored($, kept => ({ volume: Math.max(0, kept.volume - VOLUME_STEP) }))
+              }
+            />
+            <Text dimColor>{now.volume}%</Text>
+            <Button
+              key="louder"
+              dimColor
+              label="+"
+              onPress={() =>
+                stored($, kept => ({ volume: Math.min(100, kept.volume + VOLUME_STEP) }))
+              }
+            />
+          </Box>
+          <Button
+            key="scenes"
+            dimColor
+            label={isOpen ? '× scenes' : 'scenes'}
+            onPress={() => toggled($)}
+          />
         </Box>
       </Box>
     )
