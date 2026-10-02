@@ -1,6 +1,6 @@
 {
   "name": "ambient",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "A living band above the prompt that Claude's work feeds, with sound: an aquarium, a bonsai, a skyline, constellations, weather that can follow the real sky, a train, Game of Life, a heartbeat, a fireplace, digital rain or a lofi desk. /ambient picks the scene",
   "author": {
     "name": "Barış Demirhan",
@@ -8,6 +8,8 @@
   },
   "repository": "https://github.com/barisdemirhan/claude-ambient",
   "privacyPolicyUrl": "https://github.com/barisdemirhan/claude-ambient/blob/main/PRIVACY.md",
+  "supportUrl": "https://github.com/barisdemirhan/claude-ambient/issues",
+  "documentationUrl": "https://github.com/barisdemirhan/claude-ambient#readme",
   "license": "MIT",
   "types": "./types/index.d.ts",
   "homepage": "https://barisdemirhan.github.io/claude-ambient/"
