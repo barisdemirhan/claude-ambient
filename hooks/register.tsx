@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type {
+  AmbientControl,
   AmbientFeed,
   AmbientPlace,
   AmbientSettings,
@@ -55,7 +56,7 @@ const LOUD_WORDS = ['play', 'unmute']
 const SKY_EVERY_MS = 15 * 60_000
 const MIN_ROWS = 3
 const MAX_ROWS = 10
-const PICKER_ROWS = SCENES.length + 7
+const PICKER_ROWS = SCENES.length + 11
 // The finished turns the feed remembers: the constellations still in the sky.
 const LOG_TURNS = 12
 // Leaves a failed call shed grow back, this many a turn.
@@ -68,6 +69,17 @@ const WHEN: Readonly<Record<string, AmbientSettings['when']>> = {
   always: 'always',
   working: 'working',
 }
+// The controls the row under the hint line can hold, in the row's order,
+// each with its key in the picker and what the picker and the replies call it.
+const CONTROLS: readonly { id: AmbientControl; hotkey: string; label: string }[] = [
+  { id: 'name', hotkey: 'n', label: "the scene's name" },
+  { id: 'band', hotkey: 'd', label: "the band's switch" },
+  { id: 'when', hotkey: 'e', label: 'when the band shows' },
+  { id: 'rows', hotkey: 'r', label: "the band's height" },
+  { id: 'sound', hotkey: 'u', label: "the sound's switch" },
+  { id: 'volume', hotkey: 'm', label: 'the volume' },
+  { id: 'scenes', hotkey: 'c', label: "the picker's button" },
+]
 const ALIASES: Readonly<Record<string, SceneId>> = {
   fish: 'aquarium',
   tree: 'bonsai',
@@ -84,7 +96,7 @@ const ALIASES: Readonly<Record<string, SceneId>> = {
   cat: 'lofi',
 }
 const USAGE =
-  'Usage: /ambient opens the picker, /ambient <scene> picks one, or /ambient list, next, prev, on, off, sound [on|off], mute, volume <0-100|up|down>, weather <city|auto|off>, shuffle [on|off], rows <3-10>, when [always|working], hint [on|off], replant.'
+  'Usage: /ambient opens the picker, /ambient <scene> picks one, or /ambient list, next, prev, on, off, sound [on|off], mute, volume <0-100|up|down>, weather <city|auto|off>, shuffle [on|off], rows <3-10>, when [always|working], hint [name|band|when|rows|sound|volume|scenes] [on|off], backdrop [on|off], replant.'
 const DEFAULTS: AmbientSettings = {
   scene: 'aquarium',
   isOn: true,
@@ -95,6 +107,8 @@ const DEFAULTS: AmbientSettings = {
   volume: 55,
   place: null,
   hasHint: true,
+  controls: CONTROLS.map(control => control.id),
+  hasBackdrop: false,
 }
 // What of the sound lasts only as long as this module does: who this session
 // is among the others, the bed it plays, the bed each scene last asked for,
@@ -137,6 +151,7 @@ const world = atom({ plugin: 'ambient', key: 'world' } as const, {
 })
 const isPicking = atom({ plugin: 'ambient', key: 'isPicking' } as const, false)
 const sky = atom({ plugin: 'ambient', key: 'sky' } as const, null)
+const isLoaded = atom({ plugin: 'ambient', key: 'isLoaded' } as const, false)
 
 const toCount = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -175,6 +190,12 @@ const toPlace = (value: unknown): AmbientPlace | null => {
     : null
 }
 
+/** The controls kept as shown, in the row's order; all of them where none were kept. */
+const toControls = (value: unknown): AmbientControl[] =>
+  Array.isArray(value)
+    ? CONTROLS.map(control => control.id).filter(id => value.includes(id))
+    : DEFAULTS.controls
+
 const toSettings = (value: unknown): AmbientSettings => ({
   scene: sceneOf(fieldOf(value, 'scene'))?.id ?? DEFAULTS.scene,
   isOn: fieldOf(value, 'isOn') !== false,
@@ -185,6 +206,8 @@ const toSettings = (value: unknown): AmbientSettings => ({
   volume: toVolume(fieldOf(value, 'volume')),
   place: toPlace(fieldOf(value, 'place')),
   hasHint: fieldOf(value, 'hasHint') !== false,
+  controls: toControls(fieldOf(value, 'controls')),
+  hasBackdrop: fieldOf(value, 'hasBackdrop') === true,
 })
 
 const toOwner = (value: unknown): Owner => {
@@ -488,6 +511,25 @@ const picked = async ($: EngineInterface, id: string): Promise<string> => {
   return `Ambient: ${scene.name}, ${scene.about}.`
 }
 
+/**
+ * `/ambient backdrop [on|off]`: whether the fireplace, the heart monitor and
+ * the digital rain paint a backdrop, or show the terminal behind them. The
+ * word's way, or the other way with no word.
+ */
+const backdropText = async ($: EngineInterface, word: string): Promise<string> => {
+  const hasBackdrop = word === '' ? !(await read($, settings)).hasBackdrop : SWITCH[word]
+
+  if (hasBackdrop === undefined) {
+    return USAGE
+  }
+
+  await stored($, { hasBackdrop })
+
+  return hasBackdrop
+    ? 'Ambient paints a backdrop behind the fireplace, the heart monitor and the digital rain.'
+    : 'Ambient shows the terminal behind the fireplace, the heart monitor and the digital rain.'
+}
+
 /** `/ambient shuffle [on|off]`: the word's way, or the other way with no word. */
 const shuffleText = async ($: EngineInterface, word: string): Promise<string> => {
   const isShuffled =
@@ -636,11 +678,59 @@ const volumeText = async ($: EngineInterface, word: string): Promise<string> => 
   return `Ambient volume is ${volume}%${isSoundOn ? '' : ', and the sound is off: /ambient sound on'}.`
 }
 
-/** `/ambient hint [on|off]`: the label on the hint line under the prompt. */
-const hintText = async ($: EngineInterface, word: string): Promise<string> => {
+/** The controls shown, with one of them shown or left out. */
+const controlsWith = (
+  controls: readonly AmbientControl[],
+  id: AmbientControl,
+  isShown: boolean,
+): AmbientControl[] =>
+  CONTROLS.map(control => control.id).filter(each =>
+    each === id ? isShown : controls.includes(each),
+  )
+
+/**
+ * Shows one control in the row under the hint line, or leaves it out. A
+ * control shown brings the row back, if the person had taken it away.
+ */
+const shownControl = (
+  $: EngineInterface,
+  id: AmbientControl,
+  isShown?: boolean,
+): Promise<AmbientSettings> =>
+  stored($, kept => {
+    const isNowShown = isShown ?? !kept.controls.includes(id)
+
+    return {
+      controls: controlsWith(kept.controls, id, isNowShown),
+      ...(isNowShown ? { hasHint: true } : {}),
+    }
+  })
+
+/**
+ * `/ambient hint [on|off]`: the band's part of the hint line, all of it.
+ * `/ambient hint <control> [on|off]`: one control of the row under it. Each
+ * goes the word's way, or the other way with no word.
+ */
+const hintText = async ($: EngineInterface, word: string, way: string): Promise<string> => {
+  const control = CONTROLS.find(each => each.id === word)
+
+  if (control !== undefined) {
+    const isShown = way === '' ? undefined : SWITCH[way]
+
+    if (way !== '' && isShown === undefined) {
+      return USAGE
+    }
+
+    const { controls } = await shownControl($, control.id, isShown)
+
+    return controls.includes(control.id)
+      ? `Ambient shows ${control.label} under the prompt.`
+      : `Ambient leaves ${control.label} out from under the prompt.`
+  }
+
   const hasHint = word === '' ? !(await read($, settings)).hasHint : SWITCH[word]
 
-  if (hasHint === undefined) {
+  if (hasHint === undefined || way !== '') {
     return USAGE
   }
 
@@ -707,9 +797,25 @@ const whenText = async ($: EngineInterface, word: string): Promise<string> => {
     : 'Ambient shows always.'
 }
 
+/**
+ * The settings the band and the hint line are drawn by. Until the session's
+ * start has read the kept ones, the session holds only the defaults: drawn
+ * by those, a band kept to show only while Claude works showed as the
+ * session opened, and went once the start had read the kept settings.
+ */
+const shownSettings = async ($: EngineInterface): Promise<AmbientSettings> => {
+  // Read either way: a change to the settings redraws what reads them.
+  const held = await read($, settings)
+
+  return (await read($, isLoaded)) ? held : toSettings(await $.store.get(SETTINGS))
+}
+
 /** Everything the band's scene draws from, as its props. */
-const propsOf = async ($: EngineInterface, isWorking: boolean): Promise<Feed> => {
-  const { scene, place } = await read($, settings)
+const propsOf = async (
+  $: EngineInterface,
+  { scene, place, hasBackdrop }: AmbientSettings,
+  isWorking: boolean,
+): Promise<Feed> => {
   const counts = toFeed(await read($, feed))
   const { tree, city } = await read($, world)
   const date = new Date(await $.clock.now())
@@ -724,6 +830,7 @@ const propsOf = async ($: EngineInterface, isWorking: boolean): Promise<Feed> =>
     month: date.getMonth() + 1,
     sky: await read($, sky),
     place: place?.name ?? '',
+    hasBackdrop,
   }
 }
 
@@ -784,13 +891,14 @@ export const register: Register = on => {
     await $.command.register({
       name: 'ambient',
       description: 'Pick the scene for the living band above the prompt',
-      argumentHint: '[scene|list|next|off|sound|mute|volume|weather|shuffle|rows|when|hint]',
+      argumentHint: '[scene|list|next|off|sound|mute|volume|weather|shuffle|rows|when|hint|backdrop]',
     })
     const saved = toSettings(await $.store.get(SETTINGS))
     const before = await $.store.get(WORLD)
     const loaded = toWorld(before, dayOf(await $.clock.now()))
     await update($, settings, () => saved)
     await update($, world, () => loaded)
+    await update($, isLoaded, () => true)
 
     if (fieldOf(before, 'tree') === undefined) {
       // A first session plants the tree: its seed is kept from here on.
@@ -845,6 +953,11 @@ export const register: Register = on => {
       return { text: await placeText($, [word, ...rest].join(' ')) }
     }
 
+    // `/ambient hint volume off`: a control, then the way it goes.
+    if (verb === 'hint' && rest.length <= 1) {
+      return { text: await hintText($, word, rest[0] ?? '') }
+    }
+
     if (rest.length > 0) {
       return { text: USAGE }
     }
@@ -853,12 +966,12 @@ export const register: Register = on => {
       return { text: await shuffleText($, word) }
     }
 
-    if (verb === 'sound') {
-      return { text: await soundText($, word) }
+    if (verb === 'backdrop' || verb === 'background') {
+      return { text: await backdropText($, word) }
     }
 
-    if (verb === 'hint') {
-      return { text: await hintText($, word) }
+    if (verb === 'sound') {
+      return { text: await soundText($, word) }
     }
 
     if (verb === 'volume') {
@@ -1004,15 +1117,16 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The band's controls under the hint line: a switch for the band, one for
-  // the sound with its volume beside it, and a button that opens the picker
-  // and closes it again, going on to another row where this one is too
-  // narrow for them. The engine's own line is
+  // The band's controls under the hint line: the scene's name, a switch for
+  // the band and one for when it shows, its height, a switch for the sound
+  // with its volume beside it, and a button that opens the picker and closes
+  // it again, going on to another row where this one is too narrow for them.
+  // The person picks which of them the row holds. The engine's own line is
   // drawn first, as it is, with what other mods added to it. A press needs a
   // pointer, which the terminal has only in its fullscreen layout: on the
   // main screen the scene and its sound are said at the end of the hint line.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const now = await read($, settings)
+    const now = await shownSettings($)
     const hasPointer = e.surface !== 'terminal' || e.viewport?.isFullscreen === true
 
     if (!now.hasHint) {
@@ -1030,60 +1144,113 @@ export const register: Register = on => {
       return now.isOn ? next({ ...e, props: { ...e.props, tail } }) : next(e)
     }
 
+    if (now.controls.length === 0) {
+      return next(e)
+    }
+
     const line = await next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     const isHeard = now.isOn && now.isSoundOn && now.volume > 0
     const isOpen = await read($, isPicking)
+    const has = (id: AmbientControl): boolean => now.controls.includes(id)
 
+    // A switch that is on is drawn at full strength, the rest dim, so the
+    // row says at a glance what plays.
     return (
       <Box flexDirection="column">
         {line}
         <Box columnGap={2} flexWrap="wrap">
-          <Text dimColor>♪ {now.isOn ? now.scene : 'ambient'}</Text>
-          <Button
-            key="band"
-            dimColor
-            label={`${now.isOn ? '●' : '○'} band`}
-            onPress={() => stored($, kept => ({ isOn: !kept.isOn }))}
-          />
-          <Button
-            key="sound"
-            dimColor
-            label={`${isHeard ? '●' : '○'} sound`}
-            onPress={() => stored($, kept => ({ isSoundOn: !kept.isSoundOn }))}
-          />
-          <Box gap={1}>
+          {has('name') &&
+            (now.isOn ? (
+              <Text color={sceneOf(now.scene)?.hue}>♪ {now.scene}</Text>
+            ) : (
+              <Text dimColor>♪ ambient</Text>
+            ))}
+          {has('band') && (
             <Button
-              key="quieter"
+              key="band"
+              dimColor={!now.isOn}
+              label={`${now.isOn ? '●' : '○'} band`}
+              onPress={() => stored($, kept => ({ isOn: !kept.isOn }))}
+            />
+          )}
+          {has('when') && (
+            <Button
+              key="when"
               dimColor
-              label="-"
+              label={now.when === 'working' ? '◐ working' : '◉ always'}
               onPress={() =>
-                stored($, kept => ({ volume: Math.max(0, kept.volume - VOLUME_STEP) }))
+                stored($, kept => ({
+                  when: kept.when === 'working' ? 'always' : 'working',
+                }))
               }
             />
-            <Text dimColor>{now.volume}%</Text>
+          )}
+          {has('rows') && (
+            <Box gap={1}>
+              <Button
+                key="shorter"
+                dimColor
+                label="-"
+                onPress={() =>
+                  stored($, kept => ({ rows: Math.max(MIN_ROWS, kept.rows - 1) }))
+                }
+              />
+              <Text dimColor>{now.rows} rows</Text>
+              <Button
+                key="taller"
+                dimColor
+                label="+"
+                onPress={() =>
+                  stored($, kept => ({ rows: Math.min(MAX_ROWS, kept.rows + 1) }))
+                }
+              />
+            </Box>
+          )}
+          {has('sound') && (
             <Button
-              key="louder"
-              dimColor
-              label="+"
-              onPress={() =>
-                stored($, kept => ({ volume: Math.min(100, kept.volume + VOLUME_STEP) }))
-              }
+              key="sound"
+              dimColor={!isHeard}
+              label={`${isHeard ? '●' : '○'} sound`}
+              onPress={() => stored($, kept => ({ isSoundOn: !kept.isSoundOn }))}
             />
-          </Box>
-          <Button
-            key="scenes"
-            dimColor
-            label={isOpen ? '× scenes' : 'scenes'}
-            onPress={() => toggled($)}
-          />
+          )}
+          {has('volume') && (
+            <Box gap={1}>
+              <Button
+                key="quieter"
+                dimColor
+                label="-"
+                onPress={() =>
+                  stored($, kept => ({ volume: Math.max(0, kept.volume - VOLUME_STEP) }))
+                }
+              />
+              <Text dimColor>{now.volume}%</Text>
+              <Button
+                key="louder"
+                dimColor
+                label="+"
+                onPress={() =>
+                  stored($, kept => ({ volume: Math.min(100, kept.volume + VOLUME_STEP) }))
+                }
+              />
+            </Box>
+          )}
+          {has('scenes') && (
+            <Button
+              key="scenes"
+              dimColor={!isOpen}
+              label={isOpen ? '× scenes' : 'scenes'}
+              onPress={() => toggled($)}
+            />
+          )}
         </Box>
       </Box>
     )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const now = await read($, settings)
+    const now = await shownSettings($)
     const rows = Math.min(now.rows, e.props.maxRows)
     const isOffered =
       now.isOn &&
@@ -1105,7 +1272,7 @@ export const register: Register = on => {
       <ui.Client
         key={BAND}
         module="./band.tsx"
-        props={await propsOf($, e.props.isWorking)}
+        props={await propsOf($, now, e.props.isWorking)}
         width="100%"
         height={rows}
       />
@@ -1121,7 +1288,7 @@ export const register: Register = on => {
         <Text dimColor>The band above the prompt · pick its scene</Text>
         {SCENES.map((scene, index) => (
           <Box gap={1}>
-            <Text>{now.isOn && scene.id === now.scene ? '●' : ' '}</Text>
+            <Text color={scene.hue}>{now.isOn && scene.id === now.scene ? '●' : ' '}</Text>
             <Button
               key={scene.id}
               plain
@@ -1212,6 +1379,34 @@ export const register: Register = on => {
               }))
             }
           />
+          <Button
+            key="backdrop"
+            plain
+            hotkey="g"
+            label={`backdrop ${now.hasBackdrop ? 'on' : 'off'}`}
+            onPress={() => stored($, kept => ({ hasBackdrop: !kept.hasBackdrop }))}
+          />
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>Under the prompt · the controls its row holds</Text>
+        </Box>
+        <Box columnGap={2} flexWrap="wrap">
+          {CONTROLS.map(control => (
+            <Button
+              key={`control-${control.id}`}
+              plain
+              hotkey={control.hotkey}
+              dimColor={!(now.hasHint && now.controls.includes(control.id))}
+              label={`${now.hasHint && now.controls.includes(control.id) ? '●' : '○'} ${control.id}`}
+              onPress={() =>
+                shownControl(
+                  $,
+                  control.id,
+                  !(now.hasHint && now.controls.includes(control.id)),
+                )
+              }
+            />
+          ))}
         </Box>
       </Box>
     )

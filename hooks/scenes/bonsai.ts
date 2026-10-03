@@ -1,10 +1,26 @@
-import { DIM, FG, clamp, dot, hash, pick, rngOf, sign, stamp } from '../kit'
+import {
+  along,
+  backdrop,
+  clamp,
+  dot,
+  fill,
+  hash,
+  mix,
+  pick,
+  rngOf,
+  stamp,
+  wipe,
+  write,
+} from '../kit'
 import type { Canvas, Env, Rng, Scene } from '../kit'
+
+import { NIGHT_TINT, label, lightOf, skyOf } from './daylight'
 
 // One pixel of the tree: its place from the pot's middle and from the pot's
 // rim upward, and the age of the tree at which it shows.
 type Bud = { x: number; y: number; at: number }
-type Leaf = { x: number; y: number; sway: number; color: string }
+// A leaf a failure shed, or what the season lets drift: petals, leaves, snow.
+type Drift = { x: number; y: number; sway: number; color: string }
 type Moth = { x: number; y: number; color: string }
 type Garden = {
   wood: Bud[]
@@ -15,26 +31,68 @@ type Garden = {
   // growth still glows.
   turns: number
   glow: number
-  falling: Leaf[]
+  falling: Drift[]
+  drifting: Drift[]
   moths: Moth[]
 }
+/**
+ * What a season dresses the garden in: the foliage lit, between and in
+ * shade, the far hills, the lawn's two rows, and what drifts on the air.
+ */
+type Season = {
+  leaves: readonly [string, string, string]
+  hill: string
+  lawn: readonly [string, string]
+  drift: readonly string[]
+}
 
-const WOOD = ['#8d6e63', '#795548', '#6d4c41']
-const NEW_GROWTH = '#dcedc8'
+const SPRING: Season = {
+  leaves: ['#ffdbe9', '#f5a3c1', '#d46b94'],
+  hill: '#5f9e4b',
+  lawn: ['#86c25a', '#5d983d'],
+  drift: ['#ffdbe9', '#f5a3c1'],
+}
+const SUMMER: Season = {
+  leaves: ['#b4e07a', '#6aac4c', '#3a7838'],
+  hill: '#4c8c3f',
+  lawn: ['#7dbd4c', '#558f38'],
+  drift: [],
+}
+const AUTUMN: Season = {
+  leaves: ['#ffd15c', '#f08a26', '#bf3d29'],
+  hill: '#998c41',
+  lawn: ['#a4a34e', '#7c7c35'],
+  drift: ['#f08a26', '#bf3d29', '#ffd15c'],
+}
+// Winter keeps the needles green under a cap of snow.
+const WINTER: Season = {
+  leaves: ['#f2f7fb', '#4c7a59', '#30523c'],
+  hill: '#c3d1dc',
+  lawn: ['#edf3f7', '#cbd8e2'],
+  drift: ['#ffffff', '#dfeaf3'],
+}
+const BARK = ['#3e2723', '#5d4037', '#8d6e63']
+const NEW_GROWTH = '#e8f8c8'
 const FRUIT = '#e53935'
-const GRASS = '#7cb342'
-const SOIL = '#558b2f'
-const STEM = '#558b2f'
-const PETALS = ['#f06292', '#fdd835', '#ba68c8', '#4fc3f7', '#ff8a65']
-const MOTHS = ['#ffb74d', '#ba68c8', '#4fc3f7']
-// What the leaves wear, by the month on the person's clock.
-const SPRING = ['#f06292', '#f48fb1', '#81c784']
-const SUMMER = ['#66bb6a', '#43a047', '#9ccc65']
-const AUTUMN = ['#ff8f00', '#e64a19', '#fbc02d']
-const WINTER = ['#4d7c5a', '#5f8f6b', '#90a4ae']
-const POT = ['ppppppp', ' ppppp ']
-const POT_COLORS = { p: '#b0714a' }
-const POT_HALF = 3
+const STEM = '#4f8a35'
+const PETALS = ['#f06292', '#fdd835', '#ba68c8', '#4fc3f7', '#ff8a65', '#ffffff']
+const BUTTERFLIES = ['#ffb74d', '#ba68c8', '#4fc3f7', '#fff176']
+const FIREFLY = '#fff59d'
+// The pot: a shallow glazed dish, its rim catching the light at one end.
+const RIM = '#4f8fb3'
+const RIM_SHINE = '#a3d3ec'
+const GLAZE = '#2c6082'
+const FOOT = '#1b3243'
+// A stone lantern at the garden's edge, lit at night.
+const LANTERN = [' rrr ', 'rrrrr', ' sLs ', '  s  ', ' sss ']
+const STONE = '#9aa3ab'
+const ROOF = '#76808a'
+const PAPER = '#d8caa0'
+const FLAME = '#ffcf5e'
+const ROCKS = [' mgg ', 'gggggg']
+const ROCKS_WIDE = 6
+const ROCK = '#8b9088'
+const MOSS = '#6f8f4f'
 const POT_ROWS = 2
 // The age a tree starts at, and what a turn adds: about forty turns to grow.
 const SAPLING = 3
@@ -45,22 +103,30 @@ const GLOW_TICKS = 30
 const SHED_A_FAIL = 2
 const MOST_FALLING = 24
 const MOST_SHED = 0.5
+const MOST_DRIFTING = 9
 const TURNS_A_PLANT = 2
 const TURNS_A_FRUIT = 4
 const MOST_FRUIT = 10
+const STAR_ODDS = 0.012
+const FOREGROUND_LIGHT = 0.62
 const SPRIG = [[0, 1], [-1, 1], [1, 2]] as const
 
-const leavesOf = (month: number): readonly string[] => {
-  if (month >= 3 && month <= 5) {
-    return SPRING
-  }
+// The season each month of the year wears, from January on.
+const SEASONS = [
+  WINTER,
+  WINTER,
+  ...[SPRING, SPRING, SPRING],
+  ...[SUMMER, SUMMER, SUMMER],
+  ...[AUTUMN, AUTUMN, AUTUMN],
+  WINTER,
+]
 
-  if (month >= 6 && month <= 8) {
-    return SUMMER
-  }
+const seasonOf = (month: number): Season => SEASONS[month - 1] ?? WINTER
 
-  return month >= 9 && month <= 11 ? AUTUMN : WINTER
-}
+
+
+
+const isDark = (hour: number): boolean => lightOf(hour) < 0.7
 
 const ageOf = (turns: number): number => SAPLING + turns * AGE_A_TURN
 
@@ -70,7 +136,11 @@ const ageOf = (turns: number): number => SAPLING + turns * AGE_A_TURN
  * A leaning trunk, a branch or two to the sides, and a pad of leaves at
  * every tip.
  */
-const grown = (seed: number, half: number, top: number): Pick<Garden, 'wood' | 'leaves' | 'full'> => {
+const grown = (
+  seed: number,
+  half: number,
+  top: number,
+): Pick<Garden, 'wood' | 'leaves' | 'full'> => {
   const roll: Rng = rngOf(seed)
   const wood: Bud[] = []
   const leaves: Bud[] = []
@@ -148,33 +218,234 @@ const shownLeaves = (garden: Garden, env: Env): Bud[] => {
   return out.slice(0, out.length - shed)
 }
 
-const paintGround = (canvas: Canvas, env: Env, middle: number, half: number): void => {
-  const floor = env.ph - 1
-  const { seed, turns } = env.feed.tree
+/** How far the pot reaches each side of its middle: a wide, shallow dish. */
+const potHalfOf = (env: Env): number => clamp(Math.round(env.pw / 14), 3, 7)
 
-  for (let x = 0; x < env.pw; x += 1) {
-    dot(canvas, x, floor, hash(x, seed) < 0.5 ? GRASS : SOIL)
+/** The sun by day and the moon by night, on an arc over the garden. */
+const paintSky = (canvas: Canvas, env: Env, sky: readonly string[]): void => {
+  const { hour } = env.feed
+  const isDay = hour >= 6 && hour < 20
+  const share = isDay ? (hour - 6 + 0.5) / 14 : (((hour + 4) % 24) + 0.5) / 10
+  // The sun and the moon keep to the sky right of the tree, never behind it.
+  const x = Math.round(env.pw * 0.64 + share * (env.pw * 0.3))
+  const y = Math.round((1 - Math.sin(share * Math.PI)) * env.ph * 0.4) + 1
+  const isLow = hour < 8 || hour >= 17
+  const core = isDay ? (isLow ? '#ffdca6' : '#fff8d6') : '#f4f0d4'
+  const rim = isDay ? (isLow ? '#ffa05c' : '#ffd54f') : '#d9d4b4'
+  const halo = mix(along(sky, y / Math.max(1, env.ph - 1)), rim, 0.45)
+
+  if (isDark(hour)) {
+    const top = Math.floor(env.ph * 0.7)
+
+    for (let row = 0; row < top; row += 1) {
+      for (let column = 0; column < env.pw; column += 1) {
+        if (hash(column * 7 + 3, row * 13 + 5) < STAR_ODDS) {
+          // Most stars are faint; a few are bright, and they twinkle.
+          const isBright =
+            hash(column, row) > 0.7 && hash(column, row + Math.floor(env.ticks / 9)) > 0.2
+          const faint = mix(sky[0] ?? NIGHT_TINT, '#c5cff0', 0.55)
+          dot(canvas, column, row, isBright ? '#f4f6ff' : faint)
+        }
+      }
+    }
   }
 
-  // The garden around the tree: a plant sprouts every other turn and grows
-  // with the turns after it.
+  dot(canvas, x - 1, y - 1, halo)
+  dot(canvas, x + 1, y - 1, halo)
+  dot(canvas, x - 1, y + 1, halo)
+  // The moon's shadowed edge: a crescent rather than a full disc.
+  dot(canvas, x + 1, y + 1, isDay ? halo : mix(halo, NIGHT_TINT, 0.6))
+  dot(canvas, x, y - 1, rim)
+  dot(canvas, x - 1, y, rim)
+  dot(canvas, x + 1, y, rim)
+  dot(canvas, x, y + 1, rim)
+  dot(canvas, x, y, core)
+}
+
+/**
+ * The height of a row of rounded hills at a column: a few bumps, each with a
+ * place and a breadth of its own, the tallest one showing.
+ */
+const hillAt = (x: number, seed: number, pitch: number, tall: number): number => {
+  const first = Math.floor(x / pitch) - 1
+  let most = 0
+
+  for (let bump = first; bump <= first + 2; bump += 1) {
+    const middle = (bump + hash(bump, seed)) * pitch
+    const reach = pitch * (0.7 + hash(bump, seed + 1) * 0.6)
+    const far = (x - middle) / reach
+
+    if (Math.abs(far) < 1) {
+      const height = tall * (0.55 + hash(bump, seed + 2) * 0.45)
+      most = Math.max(most, height * Math.cos((far * Math.PI) / 2))
+    }
+  }
+
+  return Math.round(most)
+}
+
+/** Two rows of hills behind the lawn, the far one half lost in the haze. */
+const paintHills = (
+  canvas: Canvas,
+  env: Env,
+  sky: readonly string[],
+  light: number,
+): void => {
+  const { hill } = seasonOf(env.feed.month)
+  const haze = sky.at(-1) ?? NIGHT_TINT
+  const far = mix(NIGHT_TINT, mix(haze, hill, 0.4), light)
+  const near = mix(NIGHT_TINT, mix(haze, hill, 0.75), light)
+  const ground = env.ph - 2
+  const { seed } = env.feed.tree
+
+  for (let x = 0; x < env.pw; x += 1) {
+    const back = Math.max(1, hillAt(x, seed, 26, env.ph * 0.42))
+    const front = Math.max(1, hillAt(x + 9, seed + 7, 17, env.ph * 0.22))
+    fill(canvas, x, ground - back, 1, back, far)
+    fill(canvas, x, ground - front, 1, front, near)
+  }
+}
+
+/**
+ * The lawn, a stone lantern and some rocks, and the garden around the
+ * tree: a plant sprouts every other turn and grows with the turns after it.
+ */
+const paintGarden = (
+  canvas: Canvas,
+  env: Env,
+  middle: number,
+  room: number,
+  light: number,
+): void => {
+  const { seed, turns } = env.feed.tree
+  const season = seasonOf(env.feed.month)
+  const lit = (color: string): string => mix(NIGHT_TINT, color, light)
+  const floor = env.ph - 1
+  fill(canvas, 0, floor - 1, env.pw, 1, lit(season.lawn[0]))
+  fill(canvas, 0, floor, env.pw, 1, lit(season.lawn[1]))
+
+  // Tufts of grass at the lawn's back edge.
+  for (let x = 0; x < env.pw; x += 1) {
+    if (hash(x, seed + 3) < 0.07) {
+      dot(canvas, x, floor - 1, lit(season.lawn[1]))
+    }
+  }
+
+  const lantern = middle - room - 9
+
+  if (env.ph >= 8 && lantern >= 1) {
+    const isNight = isDark(env.feed.hour)
+    stamp(canvas, lantern, floor - 1 - LANTERN.length + 1, LANTERN, {
+      r: lit(ROOF),
+      s: lit(STONE),
+      L: isNight ? FLAME : lit(PAPER),
+    })
+
+    if (isNight) {
+      // The flame lights the lawn under it.
+      fill(canvas, lantern, floor - 1, 5, 1, mix(lit(season.lawn[0]), FLAME, 0.25))
+    }
+  }
+
+  const rocks = middle + room + 6
+
+  if (rocks + ROCKS_WIDE < env.pw - 1) {
+    stamp(canvas, rocks, floor - 2, ROCKS, { g: lit(ROCK), m: lit(MOSS) })
+  }
+
   const plants = Math.min(Math.floor(turns / TURNS_A_PLANT), Math.floor(env.pw / 5))
 
   for (let plant = 0; plant < plants; plant += 1) {
     const x = Math.floor(hash(seed, plant * 13 + 1) * env.pw)
     const stage = clamp(1 + Math.floor((turns - plant * TURNS_A_PLANT) / 3), 1, 3)
 
-    if (Math.abs(x - middle) > half + 2) {
+    if (Math.abs(x - middle) > room + 2 && Math.abs(x - lantern - 2) > 3) {
       for (let up = 1; up <= Math.min(stage, 2); up += 1) {
-        dot(canvas, x, floor - up, STEM)
+        dot(canvas, x, floor - up, lit(STEM))
       }
 
       if (stage === 3 && hash(seed, plant * 13 + 2) < 0.7) {
-        dot(canvas, x, floor - 3, pick(PETALS, hash(seed, plant * 13 + 3)) ?? FRUIT)
+        dot(canvas, x, floor - 3, lit(pick(PETALS, hash(seed, plant * 13 + 3)) ?? FRUIT))
       }
     }
   }
 }
+
+/** The dish the tree grows in: a bright rim, a deep glaze and two feet. */
+const paintPot = (canvas: Canvas, env: Env, middle: number, light: number): void => {
+  const half = potHalfOf(env)
+  const lit = (color: string): string => mix(NIGHT_TINT, color, light)
+  const rim = env.ph - POT_ROWS
+  fill(canvas, middle - half, rim, half * 2 + 1, 1, lit(RIM))
+  fill(canvas, middle - half + 1, rim, 2, 1, lit(RIM_SHINE))
+  fill(canvas, middle - half + 1, rim + 1, half * 2 - 1, 1, lit(GLAZE))
+  dot(canvas, middle - half + 1, rim + 1, lit(FOOT))
+  dot(canvas, middle + half - 1, rim + 1, lit(FOOT))
+}
+
+/** The tree: wood lit from the right, leaves lit from above. */
+const paintTree = (
+  canvas: Canvas,
+  garden: Garden,
+  env: Env,
+  middle: number,
+  light: number,
+): void => {
+  const { turns } = env.feed.tree
+  const lit = (color: string): string => mix(NIGHT_TINT, color, light)
+  // The pixel row the pot's rim is in: the tree stands on it.
+  const rim = env.ph - 1 - POT_ROWS
+  const age = ageOf(turns)
+  // What the last turn added glows for a moment.
+  const before = garden.glow > 0 ? ageOf(turns - 1) : age
+  const [bright, mid, deep] = seasonOf(env.feed.month).leaves
+  const wood = garden.wood.filter(bud => bud.at <= age)
+  const isWood = new Set(wood.map(bud => `${bud.x},${bud.y}`))
+
+  for (const bud of wood) {
+    const isThickLeft = isWood.has(`${bud.x + 1},${bud.y}`)
+    const isThickRight = isWood.has(`${bud.x - 1},${bud.y}`)
+    const knot = hash(bud.x * 5, bud.y * 3) < 0.15
+    const bark = isThickLeft || knot ? BARK[0] : isThickRight ? BARK[2] : BARK[1]
+    const color = bud.at > before ? NEW_GROWTH : lit(bark ?? NIGHT_TINT)
+    dot(canvas, middle + bud.x, rim - bud.y, color)
+  }
+
+  const leaves = shownLeaves(garden, env)
+  const isLeaf = new Set(leaves.map(leaf => `${leaf.x},${leaf.y}`))
+  const tip = wood.at(-1)
+
+  // A sapling too young for its first pad of leaves wears a sprig.
+  if (leaves.length < SPRIG.length && tip !== undefined) {
+    for (const [dx, dy] of SPRIG) {
+      dot(canvas, middle + tip.x + dx, rim - tip.y - dy, lit(mid))
+    }
+  }
+
+  for (const leaf of leaves) {
+    const isTop = !isLeaf.has(`${leaf.x},${leaf.y + 1}`)
+    const isUnder = !isLeaf.has(`${leaf.x},${leaf.y - 1}`)
+    const color = isTop ? bright : isUnder ? deep : mid
+    dot(canvas, middle + leaf.x, rim - leaf.y, leaf.at > before ? NEW_GROWTH : lit(color))
+  }
+
+  // A grown tree bears fruit, one more every few turns.
+  const ripe = Math.floor((age - garden.full) / AGE_A_TURN / TURNS_A_FRUIT)
+
+  for (let fruit = 0; fruit < Math.min(ripe, MOST_FRUIT, leaves.length); fruit += 1) {
+    const leaf = leaves[Math.floor(hash(fruit, env.feed.tree.seed) * leaves.length)]
+
+    if (leaf !== undefined) {
+      dot(canvas, middle + leaf.x, rim - leaf.y, lit(FRUIT))
+    }
+  }
+}
+
+const drifted = (drift: Drift, env: Env, fall: number): Drift => ({
+  ...drift,
+  y: drift.y + fall,
+  x: drift.x + Math.sin(env.ticks * 0.25 + drift.sway) * 0.35,
+})
 
 export const bonsai: Scene<Garden> = {
   start(env) {
@@ -186,6 +457,7 @@ export const bonsai: Scene<Garden> = {
       turns: env.feed.tree.turns,
       glow: 0,
       falling: [],
+      drifting: [],
       moths: [],
     }
   },
@@ -194,19 +466,31 @@ export const bonsai: Scene<Garden> = {
     const floor = env.ph - 1
     garden.glow = Math.max(0, garden.glow - 1)
     garden.falling = garden.falling
-      .map(leaf => ({
-        ...leaf,
-        y: leaf.y + 0.22,
-        x: leaf.x + Math.sin(env.ticks * 0.25 + leaf.sway) * 0.35,
-      }))
+      .map(leaf => drifted(leaf, env, 0.22))
       .filter(leaf => leaf.y < floor)
+
+    // The season drifts across the garden on its own: petals, leaves, snow.
+    const { drift } = seasonOf(env.feed.month)
+
+    if (drift.length > 0 && garden.drifting.length < MOST_DRIFTING && env.roll() < 0.06) {
+      garden.drifting.push({
+        x: env.roll() * env.pw,
+        y: -1,
+        sway: env.roll() * 6,
+        color: pick(drift, env.roll()) ?? '#ffffff',
+      })
+    }
+
+    garden.drifting = garden.drifting
+      .map(flake => ({ ...drifted(flake, env, 0.12), x: flake.x + 0.15 }))
+      .filter(flake => flake.y < floor)
 
     // Moths come out while Claude works and wander off when it rests.
     if (env.feed.isWorking && garden.moths.length < 2 && env.roll() < 0.02) {
       garden.moths.push({
         x: env.roll() * env.pw,
         y: env.roll() * (env.ph - 3),
-        color: pick(MOTHS, env.roll()) ?? FRUIT,
+        color: pick(BUTTERFLIES, env.roll()) ?? FRUIT,
       })
     }
 
@@ -227,7 +511,7 @@ export const bonsai: Scene<Garden> = {
     } else if (event.type === 'fail') {
       const middle = Math.floor(env.pw / 2)
       const rim = env.ph - 1 - POT_ROWS
-      const palette = leavesOf(env.feed.month)
+      const palette = seasonOf(env.feed.month).leaves
       const out = shownLeaves(garden, env)
 
       for (let made = 0; made < SHED_A_FAIL; made += 1) {
@@ -238,7 +522,7 @@ export const bonsai: Scene<Garden> = {
             x: middle + leaf.x,
             y: rim - leaf.y,
             sway: env.roll() * 6,
-            color: pick(palette, env.roll()) ?? GRASS,
+            color: pick(palette, env.roll()) ?? STEM,
           })
         }
       }
@@ -249,57 +533,32 @@ export const bonsai: Scene<Garden> = {
 
   paint(garden, canvas, env) {
     const { turns } = env.feed.tree
+    const { hour } = env.feed
     const middle = Math.floor(env.pw / 2)
-    // The pixel row the pot's rim is in: the tree stands on it.
-    const rim = env.ph - 1 - POT_ROWS
-    const age = ageOf(turns)
-    // What the last turn added glows for a moment.
-    const before = garden.glow > 0 ? ageOf(turns - 1) : age
-    const palette = leavesOf(env.feed.month)
+    const sky = skyOf(hour)
+    const light = lightOf(hour)
+    const room = Math.max(potHalfOf(env), ...garden.wood.map(bud => Math.abs(bud.x)))
 
-    paintGround(canvas, env, middle, POT_HALF + 1)
-    stamp(canvas, middle - POT_HALF, rim + 1, POT, POT_COLORS)
+    backdrop(canvas, sky)
+    paintSky(canvas, env, sky)
+    paintHills(canvas, env, sky, light)
+    paintGarden(canvas, env, middle, room, light)
+    // The tree is what the garden is for: the night takes less of it.
+    paintPot(canvas, env, middle, Math.max(light, FOREGROUND_LIGHT))
+    paintTree(canvas, garden, env, middle, Math.max(light, FOREGROUND_LIGHT))
 
-    for (const bud of garden.wood) {
-      if (bud.at <= age) {
-        const color = pick(WOOD, hash(bud.x, bud.y)) ?? FG
-        dot(canvas, middle + bud.x, rim - bud.y, bud.at > before ? NEW_GROWTH : color)
-      }
-    }
-
-    const leaves = shownLeaves(garden, env)
-    const tip = garden.wood.filter(bud => bud.at <= age).at(-1)
-
-    // A sapling too young for its first pad of leaves wears a sprig.
-    if (leaves.length < SPRIG.length && tip !== undefined) {
-      for (const [dx, dy] of SPRIG) {
-        dot(canvas, middle + tip.x + dx, rim - tip.y - dy, palette[0] ?? GRASS)
-      }
-    }
-
-    for (const leaf of leaves) {
-      const color = pick(palette, hash(leaf.x * 7, leaf.y * 13)) ?? GRASS
-      dot(canvas, middle + leaf.x, rim - leaf.y, leaf.at > before ? NEW_GROWTH : color)
-    }
-
-    // A grown tree bears fruit, one more every few turns.
-    const ripe = Math.floor((age - garden.full) / AGE_A_TURN / TURNS_A_FRUIT)
-
-    for (let fruit = 0; fruit < Math.min(ripe, MOST_FRUIT, leaves.length); fruit += 1) {
-      const leaf = leaves[Math.floor(hash(fruit, env.feed.tree.seed) * leaves.length)]
-
-      if (leaf !== undefined) {
-        dot(canvas, middle + leaf.x, rim - leaf.y, FRUIT)
-      }
-    }
-
-    for (const leaf of garden.falling) {
-      dot(canvas, leaf.x, leaf.y, leaf.color)
+    for (const drift of [...garden.drifting, ...garden.falling]) {
+      dot(canvas, drift.x, drift.y, mix(NIGHT_TINT, drift.color, Math.max(light, 0.6)))
     }
 
     for (const moth of garden.moths) {
-      // Two wings spread, then folded to one pixel.
-      if (Math.floor(env.ticks / 2) % 2 === 0) {
+      if (isDark(hour)) {
+        // At night the moths are fireflies, glowing on and off.
+        if (hash(Math.floor(moth.x), Math.floor(env.ticks / 4)) < 0.7) {
+          dot(canvas, moth.x, moth.y, FIREFLY)
+        }
+      } else if (Math.floor(env.ticks / 2) % 2 === 0) {
+        // Two wings spread, then folded to one pixel.
         dot(canvas, moth.x - 1, moth.y, moth.color)
         dot(canvas, moth.x + 1, moth.y, moth.color)
       } else {
@@ -308,6 +567,7 @@ export const bonsai: Scene<Garden> = {
     }
 
     const caption = turns === 1 ? '1 turn old' : `${turns} turns old`
-    sign(canvas, 1, 0, turns === 0 ? 'just planted' : caption, FG, DIM)
+    const text = turns === 0 ? 'just planted' : caption
+    label(canvas, 0, text, sky)
   },
 }

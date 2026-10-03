@@ -5,11 +5,20 @@ export type AmbientPlace = { name: string; latitude: number; longitude: number }
 export type AmbientSky = { code: number; isDay: boolean; temperature: number }
 
 /**
+ * The controls the row under the hint line can hold: the scene's name, the
+ * band's switch, when it shows, how tall it is, the sound's switch, the
+ * volume, and the button that opens the picker.
+ */
+export type AmbientControl = 'name' | 'band' | 'when' | 'rows' | 'sound' | 'volume' | 'scenes'
+
+/**
  * What the person switched with `/ambient`: the scene the band shows, whether
  * the band is on at all, how tall it is, when it shows, whether a new scene
  * comes with every turn, whether the scene is heard and how loud, the place
- * whose sky the weather scene follows, if they named one, and whether the
- * hint line under the prompt says what plays.
+ * whose sky the weather scene follows, if they named one, whether the hint
+ * line under the prompt says what plays, which controls its row holds, and
+ * whether the scenes that can show the terminal behind them paint a
+ * backdrop instead.
  */
 export type AmbientSettings = {
   scene: string
@@ -21,6 +30,8 @@ export type AmbientSettings = {
   volume: number
   place: AmbientPlace | null
   hasHint: boolean
+  controls: AmbientControl[]
+  hasBackdrop: boolean
 }
 
 /** One finished turn: how many tool calls it made and the kind it made most. */
@@ -60,6 +71,8 @@ declare module 'claude-code' {
       isPicking: boolean
       /** The sky over the person's place as last asked; null with no place. */
       sky: AmbientSky | null
+      /** True once the session's start has read the kept settings. */
+      isLoaded: boolean
     }
   }
 }

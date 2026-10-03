@@ -1,7 +1,9 @@
 import { KIND_COLORS, kindAt } from '../catalog'
 import type { Kind } from '../catalog'
-import { DIM, FAINT, FG, clamp, dot, hash, shade, sign, stamp } from '../kit'
+import { along, backdrop, clamp, dot, fill, hash, mix, shade, stamp, wipe, write } from '../kit'
 import type { Canvas, Env, Scene } from '../kit'
+
+import { NIGHT_TINT, label, lightOf, skyOf } from './daylight'
 
 // A wagon coupled behind the engine: `lag` is how far it still trails the
 // place it is rolling up to.
@@ -22,62 +24,84 @@ type Railway = {
   puffs: Puff[]
 }
 
+// A red cab, a black boiler banded in brass, red wheels on steel tyres.
 const ENGINE = [
-  '        ss  ',
-  ' cccc   ss  ',
-  ' cwwcRRRRRR ',
-  ' cccRRRRRRRR',
-  'kkkkkkkkkkkk',
-  ' oo  oo  oo ',
+  ' rrrrrr     sss  ',
+  ' RwwRR   GG  s   ',
+  ' RwwRRBBBBBBBBBB ',
+  ' RRRRRBGBBBGBBBBL',
+  'xkkkkkkkkkkkkkkkc',
+  '  oOo oOo oOo  o ',
 ]
 const ENGINE_COLORS = {
-  s: '#546e7a',
-  c: '#c62828',
-  w: '#ffd54f',
-  R: '#e53935',
-  k: '#37474f',
+  r: '#8e1c1c',
+  R: '#c62828',
+  B: '#2b2f36',
+  G: '#e0b04a',
+  s: '#1f2227',
+  k: '#1c1e22',
+  x: '#d84315',
+  c: '#9aa3ad',
 }
-const ENGINE_WIDE = 12
-const STACK = 8.5
+const ENGINE_WIDE = 17
+const STACK = 13
+const LAMP_ROW = 3
 // A wagon for every kind of call: box car, hopper, flat car with crates,
 // tank car, container, coach, striped box and a low gondola.
 const WAGONS: Readonly<Record<Kind, readonly string[]>> = {
-  read: ['AAAAAAA', 'AaAAAaA', 'AAAAAAA', ' o   o '],
-  search: ['A     A', 'AAAAAAA', ' AAAAA ', ' o   o '],
-  edit: ['  BB b ', ' BBB bb', 'AAAAAAA', ' o   o '],
-  shell: [' AAAAA ', 'AAAAAAA', ' AAAAA ', ' o   o '],
-  web: ['AAAaAAA', 'AAAaAAA', 'AAAaAAA', ' o   o '],
-  agent: ['AAAAAAA', 'AwAwAwA', 'AAAAAAA', ' o   o '],
-  mcp: ['AAAAAAA', 'aaaaaaa', 'AAAAAAA', ' o   o '],
-  other: ['       ', 'AAAAAAA', 'AAAAAAA', ' o   o '],
+  read: ['ddddddd', 'AAAAAAA', 'AAAAAAA', 'ookkkoo'],
+  search: ['A     A', 'AAAAAAA', ' aAAAa ', 'ookkkoo'],
+  edit: [' BBb b ', ' BBb bb', 'AAAAAAA', 'ookkkoo'],
+  shell: [' dAAAd ', 'AAAAAAA', ' aaaaa ', 'ookkkoo'],
+  web: ['AAAAAAA', 'AAAAAAA', 'aaaaaaa', 'ookkkoo'],
+  agent: ['ddddddd', 'AwAwAwA', 'AAAAAAA', 'ookkkoo'],
+  mcp: ['ddddddd', 'aaaaaaa', 'AAAAAAA', 'ookkkoo'],
+  other: ['       ', 'AcccccA', 'AAAAAAA', 'ookkkoo'],
 }
 const WAGON_WIDE = 7
 const WAGON_PITCH = WAGON_WIDE + 1
-const STATION = [' rrrrrrrrrr ', 'rrrrrrrrrrrr', ' yywyyddywy ', ' yyyyyddyyy ']
-const STATION_COLORS = { r: '#8d6e63', y: '#bcaaa4', w: '#ffd54f', d: '#5d4037' }
-const PLATFORM = '#90a4ae'
-const PLATFORM_BEHIND = 26
-const PLATFORM_AHEAD = 14
-const WHEELS = ['#78909c', '#b0bec5']
-const CRATE = '#bcaaa4'
-const CRATE_SHADE = '#a1887f'
-const LIT = '#ffd54f'
-const COUPLING = '#37474f'
-const SLEEPER = '#8d6e63'
+const STATION = [' tttttttttt ', 'tttttttttttt', ' ccwccddcwc ', ' ccccdccccc ']
+const STATION_COLORS = { t: '#a0442f', c: '#e8dcc0', d: '#6b4a32' }
+const WINDOW_DAY = '#7fa7c4'
+const PLATFORM = '#a3a9b0'
+const PLATFORM_EDGE = '#e0c34a'
+const PLATFORM_BEHIND = 30
+const PLATFORM_AHEAD = 16
+const BOARD = '#24453a'
+const BOARD_TEXT = '#f2efe6'
+const WHEELS = ['#9aa3ad', '#b71c1c']
+const FRAME = '#1c1e22'
+const CRATE = '#c9a77a'
+const CRATE_SHADE = '#9c7b52'
+const COAL = '#3a3a3f'
+const LIT = '#ffd36e'
+const LAMP = '#fff3c4'
 const SPARKS = ['#ffeb3b', '#ef5350']
-const TRUNK = '#795548'
-const CANOPY = '#66bb6a'
-const SMOKE = ['#b0bec5', '#90a4ae']
+const RAIL = '#aab2bb'
+const BALLAST = '#6e6459'
+const MEADOW = '#6aa84f'
+const TRUNK = '#5d4037'
+const CANOPY = ['#4e9a3e', '#3a7a30']
+const POLE = '#6d5a48'
+const MOUNTAIN = '#56678a'
+const SNOW = '#eef3f8'
+const HILL = '#4f8f43'
+const SMOKE = '#d9dee3'
 const TOP_SPEED = 1.2
 const PULL = 0.03
 const LAG = 12
 const MOST_WAGONS = 40
-const PUFF_LIFE = 20
+const PUFF_LIFE = 22
 // The scenery has something every so many pixels of line, or nothing.
 const SCENERY_PITCH = 11
+// How fast the far mountains and the hills go by, of the train's speed.
+const FAR_DRIFT = 0.1
+const HILL_DRIFT = 0.3
+
+
 
 /** The engine's left edge on the band: it holds its place, the world moves. */
-const engineAt = (env: Env): number => clamp(env.pw - 30, 4, Math.max(4, env.pw - ENGINE_WIDE))
+const engineAt = (env: Env): number => clamp(env.pw - 32, 4, Math.max(4, env.pw - ENGINE_WIDE))
 
 /** Where the station comes to rest: just ahead of the engine. */
 const stopAt = (env: Env): number => engineAt(env) + ENGINE_WIDE + 3
@@ -85,22 +109,172 @@ const stopAt = (env: Env): number => engineAt(env) + ENGINE_WIDE + 3
 const wagonAt = (index: number, wagon: Wagon, env: Env): number =>
   engineAt(env) - (index + 1) * WAGON_PITCH - wagon.lag
 
+/** The height of a row of peaks or hills at a column of the scrolled line. */
+const ridgeAt = (
+  x: number,
+  seed: number,
+  pitch: number,
+  tall: number,
+  isPeaked: boolean,
+): number => {
+  const first = Math.floor(x / pitch) - 1
+  let most = 0
+
+  for (let bump = first; bump <= first + 2; bump += 1) {
+    const middle = (bump + hash(bump, seed)) * pitch
+    const reach = pitch * (0.7 + hash(bump, seed + 1) * 0.6)
+    const far = Math.abs(x - middle) / reach
+
+    if (far < 1) {
+      const height = tall * (0.45 + hash(bump, seed + 2) * 0.55)
+      most = Math.max(most, height * (isPeaked ? 1 - far : Math.cos((far * Math.PI) / 2)))
+    }
+  }
+
+  return Math.round(most)
+}
+
+/**
+ * The land behind the line: snowy peaks far off, green hills nearer, both
+ * going by slower than the train, and the meadow along the track.
+ */
+const paintLand = (
+  canvas: Canvas,
+  railway: Railway,
+  env: Env,
+  sky: readonly string[],
+  light: number,
+): void => {
+  const haze = sky.at(-1) ?? NIGHT_TINT
+  const lit = (color: string): string => mix(NIGHT_TINT, color, light)
+  const far = lit(mix(haze, MOUNTAIN, 0.55))
+  const snow = lit(mix(haze, SNOW, 0.8))
+  const hill = lit(mix(haze, HILL, 0.8))
+  const meadow = env.ph - 3
+  const farShift = Math.floor(railway.dist * FAR_DRIFT)
+  const hillShift = Math.floor(railway.dist * HILL_DRIFT)
+
+  for (let x = 0; x < env.pw; x += 1) {
+    const peak = ridgeAt(x + farShift, 5, 22, env.ph * 0.62, true)
+    fill(canvas, x, meadow - peak, 1, peak, far)
+
+    if (peak >= env.ph * 0.42) {
+      fill(canvas, x, meadow - peak, 1, peak >= env.ph * 0.55 ? 2 : 1, snow)
+    }
+
+    const rise = Math.max(1, ridgeAt(x + hillShift, 9, 15, env.ph * 0.3, false))
+    fill(canvas, x, meadow - rise, 1, rise, hill)
+  }
+
+  fill(canvas, 0, meadow, env.pw, 1, lit(MEADOW))
+}
+
+/** The sun by day and the moon by night, on an arc over the line. */
+const paintSun = (canvas: Canvas, env: Env, sky: readonly string[]): void => {
+  const { hour } = env.feed
+  const isDay = hour >= 6 && hour < 20
+  const share = isDay ? (hour - 6 + 0.5) / 14 : (((hour + 4) % 24) + 0.5) / 10
+  // It keeps to the sky the smoke leaves clear, behind the train.
+  const x = Math.round(3 + share * env.pw * 0.55)
+  const y = Math.round((1 - Math.sin(share * Math.PI)) * env.ph * 0.35) + 1
+  const isLow = hour < 8 || hour >= 17
+  const core = isDay ? (isLow ? '#ffdca6' : '#fff8d6') : '#f4f0d4'
+  const rim = isDay ? (isLow ? '#ffa05c' : '#ffd54f') : '#d9d4b4'
+
+  for (const [dx, dy] of [[0, -1], [-1, 0], [1, 0], [0, 1]] as const) {
+    dot(canvas, x + dx, y + dy, rim)
+  }
+
+  dot(canvas, x, y, core)
+  const behind = along(sky, (y + 1) / Math.max(1, env.ph - 1))
+  dot(canvas, x + 1, y + 1, mix(behind, rim, isDay ? 0.45 : 0.2))
+}
+
+/** Trees, bushes and telegraph poles by the line, going by at its pace. */
+const paintScenery = (canvas: Canvas, railway: Railway, env: Env, light: number): void => {
+  const lit = (color: string): string => mix(NIGHT_TINT, color, light)
+  const scrolled = Math.floor(railway.dist)
+  const first = Math.floor(scrolled / SCENERY_PITCH) - 1
+  const ground = env.ph - 3
+
+  for (let place = first; place <= first + env.pw / SCENERY_PITCH + 2; place += 1) {
+    const x = place * SCENERY_PITCH - scrolled
+    const what = hash(place, 77)
+
+    if (what < 0.2) {
+      const tall = env.ph >= 12 && hash(place, 78) < 0.5 ? 2 : 1
+      fill(canvas, x, ground - tall, 1, tall, lit(TRUNK))
+      fill(canvas, x - 1, ground - tall - 2, 3, 1, lit(CANOPY[0] ?? MEADOW))
+      fill(canvas, x - 1, ground - tall - 1, 3, 1, lit(CANOPY[1] ?? MEADOW))
+      dot(canvas, x, ground - tall - 3, lit(CANOPY[0] ?? MEADOW))
+    } else if (what < 0.32) {
+      fill(canvas, x, ground - 4, 1, 4, lit(POLE))
+      fill(canvas, x - 1, ground - 4, 3, 1, lit(POLE))
+    } else if (what < 0.45) {
+      fill(canvas, x, ground - 1, 2, 1, lit(CANOPY[1] ?? MEADOW))
+    }
+  }
+}
+
+const paintTrack = (canvas: Canvas, env: Env, light: number): void => {
+  const lit = (color: string): string => mix(NIGHT_TINT, color, light)
+  fill(canvas, 0, env.ph - 2, env.pw, 1, lit(RAIL))
+  fill(canvas, 0, env.ph - 1, env.pw, 1, lit(BALLAST))
+}
+
+/** The station: its platform, a house with a tiled roof, and its name board. */
+const paintStation = (canvas: Canvas, railway: Railway, env: Env, light: number): void => {
+  if (railway.station === undefined) {
+    return
+  }
+
+  const lit = (color: string): string => mix(NIGHT_TINT, color, light)
+  const isNight = light < 0.7
+  const x = Math.floor(railway.station - railway.dist)
+  const ground = env.ph - 3
+  const top = ground - STATION.length
+  const long = PLATFORM_BEHIND + PLATFORM_AHEAD
+  fill(canvas, x - PLATFORM_BEHIND, ground, long, 1, lit(PLATFORM))
+  fill(canvas, x - PLATFORM_BEHIND, ground - 1, long, 1, lit(PLATFORM_EDGE))
+  stamp(canvas, x, top, STATION, {
+    t: lit(STATION_COLORS.t),
+    c: lit(STATION_COLORS.c),
+    d: lit(STATION_COLORS.d),
+    w: isNight ? LIT : lit(WINDOW_DAY),
+  })
+
+  // The board names the turn, on the row of cells over the roof.
+  const name = `Turn ${railway.stop}`
+  const row = Math.floor(top / 2) - 1
+
+  if (row >= 0) {
+    const left = x + 6 - Math.floor((name.length + 2) / 2)
+    fill(canvas, left, row * 2, name.length + 2, 2, lit(BOARD))
+    write(canvas, left + 1, row, name, BOARD_TEXT)
+  }
+}
+
 const paintWagon = (
   canvas: Canvas,
   x: number,
   wagon: Pick<Wagon, 'kind' | 'isBroken'>,
   env: Env,
-  wheel: string,
+  light: number,
 ): void => {
+  const lit = (color: string): string => mix(NIGHT_TINT, color, light)
   const color = shade(KIND_COLORS[wagon.kind], wagon.isBroken ? 0.45 : 1)
   const lines = WAGONS[wagon.kind]
   stamp(canvas, x, env.ph - 1 - lines.length, lines, {
-    A: color,
-    a: shade(color, 0.65),
-    B: CRATE,
-    b: CRATE_SHADE,
-    w: LIT,
-    o: wheel,
+    A: lit(color),
+    a: lit(shade(color, 0.7)),
+    d: lit(shade(color, 0.55)),
+    B: lit(CRATE),
+    b: lit(CRATE_SHADE),
+    c: lit(COAL),
+    w: light < 0.7 ? LIT : lit(mix(color, '#ffffff', 0.55)),
+    k: FRAME,
+    // Steel wheels on the steel rail: the frame between them shows them.
+    o: lit(RAIL),
   })
 
   if (wagon.isBroken) {
@@ -108,51 +282,6 @@ const paintWagon = (
     const at = Math.floor(env.ticks / 2)
     dot(canvas, x + 1 + (at % 5), env.ph - 2, SPARKS[at % 2] ?? LIT)
   }
-}
-
-const paintScenery = (canvas: Canvas, railway: Railway, env: Env): void => {
-  const scrolled = Math.floor(railway.dist)
-  const first = Math.floor(scrolled / SCENERY_PITCH) - 1
-  const ground = env.ph - 2
-
-  for (let place = first; place <= first + env.pw / SCENERY_PITCH + 2; place += 1) {
-    const x = place * SCENERY_PITCH - scrolled
-    const what = hash(place, 77)
-
-    if (what < 0.14) {
-      dot(canvas, x, ground, TRUNK)
-      dot(canvas, x, ground - 1, TRUNK)
-
-      for (let dx = -1; dx <= 1; dx += 1) {
-        dot(canvas, x + dx, ground - 2, CANOPY)
-        dot(canvas, x + dx, ground - 3, CANOPY)
-      }
-    } else if (what < 0.22) {
-      for (let up = 0; up < 4; up += 1) {
-        dot(canvas, x, ground - up, FAINT)
-      }
-    } else if (what < 0.3) {
-      dot(canvas, x, ground, CANOPY)
-      dot(canvas, x + 1, ground, CANOPY)
-    }
-  }
-}
-
-const paintStation = (canvas: Canvas, railway: Railway, env: Env): void => {
-  if (railway.station === undefined) {
-    return
-  }
-
-  const x = Math.floor(railway.station - railway.dist)
-  const ground = env.ph - 2
-  const top = ground - STATION.length
-
-  for (let dx = -PLATFORM_BEHIND; dx < PLATFORM_AHEAD; dx += 1) {
-    dot(canvas, x + dx, ground, PLATFORM)
-  }
-
-  stamp(canvas, x, top, STATION, STATION_COLORS)
-  sign(canvas, x, Math.floor(top / 2) - 1, `Turn ${railway.stop}`, FG, DIM)
 }
 
 export const train: Scene<Railway> = {
@@ -210,7 +339,7 @@ export const train: Scene<Railway> = {
     }
 
     // The engine puffs along the line and only breathes at the platform.
-    if (env.ticks % (railway.speed > 0.1 ? 3 : 14) === 0) {
+    if (env.ticks % (railway.speed > 0.1 ? 4 : 14) === 0) {
       railway.puffs.push({
         x: engineAt(env) + STACK,
         y: env.ph - 2 - ENGINE.length,
@@ -264,39 +393,63 @@ export const train: Scene<Railway> = {
   },
 
   paint(railway, canvas, env) {
-    const rail = env.ph - 1
+    const sky = skyOf(env.feed.hour)
+    const light = lightOf(env.feed.hour)
     const scrolled = Math.floor(railway.dist)
-    const wheel = WHEELS[railway.speed > 0 ? scrolled % 2 : 0] ?? FAINT
-    paintScenery(canvas, railway, env)
-    paintStation(canvas, railway, env)
-
-    for (let x = 0; x < env.pw; x += 1) {
-      dot(canvas, x, rail, (x + scrolled) % 4 === 0 ? SLEEPER : FAINT)
-    }
+    const isTurning = railway.speed > 0 && scrolled % 2 === 1
+    // The wheels' rims and hubs trade places as they turn.
+    const [rim, hub] = isTurning ? [WHEELS[1], WHEELS[0]] : [WHEELS[0], WHEELS[1]]
+    backdrop(canvas, sky)
+    paintSun(canvas, env, sky)
+    paintLand(canvas, railway, env, sky, light)
+    paintScenery(canvas, railway, env, light)
+    paintStation(canvas, railway, env, light)
+    paintTrack(canvas, env, light)
 
     for (const wagon of railway.parked) {
-      paintWagon(canvas, Math.floor(wagon.at - railway.dist), wagon, env, WHEELS[0] ?? FAINT)
+      paintWagon(canvas, Math.floor(wagon.at - railway.dist), wagon, env, light)
     }
 
     railway.wagons.forEach((wagon, index) => {
       const x = Math.floor(wagonAt(index, wagon, env))
-      paintWagon(canvas, x, wagon, env, wheel)
-      dot(canvas, x + WAGON_WIDE, env.ph - 3, COUPLING)
+      paintWagon(canvas, x, wagon, env, light)
+      dot(canvas, x + WAGON_WIDE, env.ph - 3, FRAME)
     })
 
-    stamp(canvas, engineAt(env), rail - ENGINE.length, ENGINE, {
-      ...ENGINE_COLORS,
-      o: wheel,
+    const engine = engineAt(env)
+    const lit = (color: string): string => mix(NIGHT_TINT, color, light)
+    stamp(canvas, engine, env.ph - 1 - ENGINE.length, ENGINE, {
+      ...Object.fromEntries(
+        Object.entries(ENGINE_COLORS).map(([key, color]) => [key, lit(color)]),
+      ),
+      w: light < 0.7 ? LIT : lit('#ffe7a8'),
+      L: LAMP,
+      o: rim ?? FRAME,
+      O: hub ?? FRAME,
     })
+
+    if (light < 0.7) {
+      // At night the lamp lights the line ahead.
+      const row = env.ph - 1 - ENGINE.length + LAMP_ROW
+
+      for (let ahead = 1; ahead <= 6; ahead += 1) {
+        const behind = along(sky, row / Math.max(1, env.ph - 1))
+        const beam = mix(behind, LAMP, 0.4 - ahead * 0.05)
+        dot(canvas, engine + ENGINE_WIDE - 1 + ahead, row, beam)
+      }
+    }
 
     for (const puff of railway.puffs) {
-      dot(canvas, puff.x, puff.y, puff.age < 7 ? (SMOKE[0] ?? FAINT) : puff.age < 13 ? (SMOKE[1] ?? FAINT) : FAINT)
+      const behind = along(sky, clamp(puff.y, 0, env.ph - 1) / Math.max(1, env.ph - 1))
+      const color = mix(lit(SMOKE), behind, puff.age / PUFF_LIFE)
+      const size = puff.age < 6 ? 1 : 2
+      fill(canvas, puff.x, puff.y, size, size, color)
     }
 
     const count = railway.wagons.length
 
     if (count > 0) {
-      sign(canvas, 1, 0, `${count} ${count === 1 ? 'wagon' : 'wagons'}`, FG, DIM)
+      label(canvas, 0, `${count} ${count === 1 ? 'wagon' : 'wagons'}`, sky)
     }
   },
 }

@@ -1,4 +1,4 @@
-import { DIM, FG, clamp, dot, hash, isClear, sign, stamp, write } from '../kit'
+import { along, backdrop, clamp, dot, fill, hash, mix, shade, stamp, wipe, write } from '../kit'
 import type { Canvas, Env, Scene } from '../kit'
 
 type Cloud = { x: number; y: number; wide: number; puff: number }
@@ -21,19 +21,65 @@ type Climate = {
   bed: string
   birds: Bird[]
 }
+// A cloud's three tones: its sunlit top, its body, its shaded underside.
+type Tones = { top: string; body: string; under: string }
+type Light = { isDark: boolean; isDusk: boolean; isSnow: boolean; hour: number }
 
-const SUN = '#ffca28'
-const MOON = '#cfd8dc'
-const RAIN = '#4fc3f7'
-const BOLT = '#fff176'
-const HILL = '#66bb6a'
-const HILL_TOP = '#81c784'
-const SNOW_CAP = '#b0bec5'
-const CLOUDS = ['#b0bec5', '#90a4ae', '#78909c', '#546e7a']
-const LIT_CLOUD = '#eceff1'
-const BOW = ['#ef5350', '#ffa726', '#ffee58', '#66bb6a', '#42a5f5']
-const HOUSE = [' rrr ', 'rrrrr', 'wwyww', 'wwwdw']
-const HOUSE_COLORS = { r: '#8d6e63', w: '#bcaaa4', y: '#ffd54f', d: '#6d4c41' }
+// The sky top to horizon: by day, at dawn and dusk, by night, and under a
+// storm by day and by night; a snowy sky is paler.
+const DAY_SKY = ['#3f86cf', '#78b3e6', '#c2e1f5']
+const DUSK_SKY = ['#3b4b8a', '#b9708e', '#f4b26e']
+const NIGHT_SKY = ['#070b1f', '#111a3d', '#25315e']
+const STORM_SKY = ['#4a525e', '#69727e', '#8e969f']
+const SNOW_SKY = ['#8fa3b8', '#b4c3d1', '#dce5ed']
+const STORM_NIGHT_SKY = ['#090b11', '#141821', '#222733']
+const FLASH = '#e3e9f7'
+const SUN = '#ffcc33'
+const SUN_CORE = '#fff1b3'
+const DUSK_SUN = '#ff9a3c'
+const GLOW = '#fff0b8'
+const MOON = '#e9edf6'
+const MOON_SHADOW = '#b7bfd0'
+const STARS = ['#e8ecff', '#9aa3c8']
+const RAIN = '#a9d9f5'
+const HEAVY_RAIN = '#d6eeff'
+const SNOW = ['#ffffff', '#dbe7f2']
+const BOLT = '#fffbe0'
+const BIRD = '#2d3a4a'
+const CAPTION = '#eef3f8'
+const FAIR_CLOUD: Tones = { top: '#ffffff', body: '#eef3f8', under: '#c6d1dc' }
+const GREY_CLOUD: Tones = { top: '#d7dde4', body: '#aab4be', under: '#87919c' }
+const STORM_CLOUD: Tones = { top: '#8c959f', body: '#69727c', under: '#4b535c' }
+const NIGHT_CLOUD: Tones = { top: '#4d587b', body: '#3a446b', under: '#2b3457' }
+const NIGHT_STORM_CLOUD: Tones = { top: '#30353f', body: '#22262f', under: '#181b22' }
+const LIT_CLOUD: Tones = { top: '#ffffff', body: '#f0f3fa', under: '#c9d0de' }
+// The three hills far to near, as summer, winter and night paint them.
+const HILLS = ['#8fb3a8', '#62a35a', '#46913f']
+const HILL_EDGE = '#78c463'
+const FLOWERS = ['#fff59d', '#ffffff', '#f8bbd0']
+const WINTER_HILLS = ['#b9c7d5', '#d3dee7', '#e9eff4']
+const NIGHT_HILLS = ['#1e2c3d', '#19302b', '#15291f']
+const NIGHT_WINTER_HILLS = ['#3a4662', '#4a5774', '#5b6886']
+const STORM_GREY = '#59626a'
+// What the low sun of dawn and dusk casts over the land and the clouds.
+const DUSK_TINT = '#8a4f62'
+const DUSK_GLOW = '#ffc2a3'
+const BOW = ['#ff5252', '#ffab40', '#ffee58', '#69f0ae', '#40c4ff', '#7c4dff']
+const TREE = '#2e6f34'
+const TREE_LIGHT = '#43944a'
+const TRUNK = '#5d4037'
+const SMOKE = '#d9dee4'
+// The house on the near hill, big where the band is tall: `c` its chimney,
+// `r` its roof, `w` its walls, `y` its window, `d` its door.
+const HOUSE = ['......c..', '..rrrrcr.', 'rrrrrrrrr', '.wyywwdw.', '.wyywwdw.']
+const SMALL_HOUSE = ['...c.', '.rrrr', 'rrrrr', '.ywd.']
+const HOUSE_COLORS = {
+  c: '#6d4c41',
+  r: '#a0473a',
+  w: '#efe2cf',
+  y: '#ffd54f',
+  d: '#7a4b32',
+}
 // What a failed call adds to the storm, and what a clean one leaves of it.
 const FAIL_STORM = 0.35
 const CLEAN_CALM = 0.95
@@ -47,7 +93,8 @@ const BOLT_ODDS = 0.035
 const BOLT_TICKS = 3
 // The pixel row the rain and the lightning leave the clouds at.
 const BOLT_TOP = 3
-const MOST_DROPS = 220
+// Raindrops and snowflakes in the air at once, for each column of the band.
+const DROPS_A_COLUMN = 0.35
 
 const isNight = (hour: number): boolean => hour >= 19 || hour < 6
 
@@ -94,75 +141,150 @@ const isSnowing = (env: Env): boolean =>
 const isDark = (env: Env): boolean =>
   env.feed.sky === null ? isNight(env.feed.hour) : !env.feed.sky.isDay
 
-/** How tall the hills stand at a column, in pixels. */
-const hillAt = (x: number, env: Env): number =>
-  clamp(
-    Math.round(1.6 + Math.sin(x * 0.09) * 0.9 + Math.sin(x * 0.031 + 2) * 0.9),
-    1,
-    Math.max(1, Math.floor(env.ph / 3)),
-  )
+const lightOf = (env: Env): Light => {
+  const { hour } = env.feed
+  const isDarkNow = isDark(env)
+
+  return {
+    isDark: isDarkNow,
+    isDusk: !isDarkNow && [6, 7, 17, 18].includes(hour),
+    isSnow: isSnowing(env),
+    hour,
+  }
+}
+
+/** The top pixel of each hill at a column, far to near. */
+const hillTops = (x: number, env: Env): [number, number, number] => {
+  const far = 0.45 + Math.sin(x * 0.055 + 1) * 0.13 + Math.sin(x * 0.019) * 0.08
+  const middle = 0.32 + Math.sin(x * 0.08 + 3) * 0.09 + Math.sin(x * 0.027 + 2) * 0.06
+  const near = 0.16 + Math.sin(x * 0.12) * 0.05 + Math.sin(x * 0.035 + 2) * 0.05
+
+  return [far, middle, near].map(share =>
+    env.ph - clamp(Math.round(share * env.ph), 1, env.ph - 1),
+  ) as [number, number, number]
+}
+
+const nearTop = (x: number, env: Env): number => hillTops(Math.floor(x), env)[2]
 
 const cloudOf = (x: number, env: Env): Cloud => ({
   x,
   y: Math.floor(env.roll() * Math.max(1, env.ph * 0.3)),
-  wide: 6 + Math.floor(env.roll() * 8),
+  wide: 9 + Math.floor(env.roll() * 12),
   puff: Math.floor(env.roll() * 1000),
 })
 
 const cloudsWanted = (mood: number, env: Env): number =>
-  Math.round(1 + mood * (env.pw / 8))
+  Math.round(1 + mood * (env.pw / 14))
 
-const paintCloud = (canvas: Canvas, cloud: Cloud, color: string): void => {
-  for (let dx = 0; dx < cloud.wide; dx += 1) {
-    dot(canvas, cloud.x + dx, cloud.y + 2, color)
+/** How far the storm has taken the sky, from fair at 0 to black at 1. */
+const gloomOf = (mood: number): number => clamp((mood - 0.15) / 0.6, 0, 1)
 
-    if (dx > 0 && dx < cloud.wide - 1) {
-      dot(canvas, cloud.x + dx, cloud.y + 1, color)
-    }
+const skyOf = (climate: Climate, light: Light): string[] => {
+  const fair = light.isDark ? NIGHT_SKY : light.isDusk ? DUSK_SKY : DAY_SKY
+  const grey = light.isDark ? STORM_NIGHT_SKY : light.isSnow ? SNOW_SKY : STORM_SKY
+  const gloom = gloomOf(climate.mood)
+  const flash = climate.bolt === undefined ? 0 : 0.55
 
-    if (dx > 1 && dx < cloud.wide - 2 && hash(cloud.puff, dx >> 1) < 0.6) {
-      dot(canvas, cloud.x + dx, cloud.y, color)
-    }
+  return fair.map((color, at) => mix(mix(color, grey[at] ?? color, gloom), FLASH, flash))
+}
+
+const tonesOf = (climate: Climate, light: Light): Tones => {
+  if (climate.bolt !== undefined) {
+    return LIT_CLOUD
+  }
+
+  const gloom = gloomOf(climate.mood)
+  const [fair, middle, dark] = light.isDark
+    ? [NIGHT_CLOUD, NIGHT_STORM_CLOUD, NIGHT_STORM_CLOUD]
+    : [FAIR_CLOUD, GREY_CLOUD, STORM_CLOUD]
+  const tone = (key: keyof Tones): string =>
+    along([fair[key], middle[key], dark[key]], gloom, 5)
+
+  const glow = light.isDusk ? 0.35 * (1 - gloom) : 0
+
+  return {
+    top: mix(tone('top'), DUSK_GLOW, glow),
+    body: mix(tone('body'), DUSK_GLOW, glow * 0.8),
+    under: mix(tone('under'), DUSK_TINT, glow),
   }
 }
 
-/** The sun with its turning rays, or by night the moon. */
-const paintLight = (canvas: Canvas, env: Env): void => {
-  const x = 6
-  const y = 3
+/** A cloud of round puffs: a lit top, a body, a shaded flat underside. */
+const paintCloud = (canvas: Canvas, cloud: Cloud, tones: Tones, env: Env): void => {
+  const tall = env.ph >= 8 ? 4 : 3
+  const bottom = cloud.y + tall - 1
 
-  if (isDark(env)) {
-    for (let dx = -2; dx <= 2; dx += 1) {
-      for (let dy = -2; dy <= 2; dy += 1) {
-        const isMoon = dx * dx + dy * dy <= 5
-        const isShadow = (dx - 1) * (dx - 1) + (dy + 1) * (dy + 1) <= 3
+  for (let dx = 0; dx < cloud.wide; dx += 1) {
+    const edge = Math.min(dx, cloud.wide - 1 - dx)
+    const bump = hash(cloud.puff, Math.floor(dx / 3)) < 0.5 ? 1 : 0
+    const top = cloud.y + clamp(2 - edge + bump, 0, tall - 1)
+    const x = Math.floor(cloud.x) + dx
+    fill(canvas, x, top, 1, bottom - top + 1, tones.body)
+    dot(canvas, x, top, tones.top)
+    dot(canvas, x, bottom, tones.under)
+  }
+}
 
-        if (isMoon && !isShadow) {
-          dot(canvas, x + dx, y + dy, MOON)
+/** Under a storm, a deck of cloud closes over the top of the sky. */
+const paintDeck = (canvas: Canvas, climate: Climate, tones: Tones, env: Env): void => {
+  const depth = (climate.mood - 0.55) / 0.45
+
+  if (depth <= 0) {
+    return
+  }
+
+  for (let x = 0; x < env.pw; x += 1) {
+    const wave = Math.sin(x * 0.17 + env.ticks * 0.02) + Math.sin(x * 0.05 + 1)
+    const reach = Math.round(depth * env.ph * 0.25 + (wave > 0.6 ? 1 : 0))
+    fill(canvas, x, 0, 1, reach, tones.body)
+    dot(canvas, x, reach - 1, tones.under)
+  }
+}
+
+/** The sun, low and orange at dawn and dusk, high at noon; by night the moon and stars. */
+const paintLight = (canvas: Canvas, climate: Climate, light: Light, env: Env): void => {
+  // The moon keeps to the left; the sun crosses the sky with the hours.
+  const day = clamp((light.hour - 6) / 13, 0, 1)
+  const x = light.isDark ? Math.max(4, Math.round(env.pw * 0.12)) : Math.round(env.pw * (0.08 + day * 0.6))
+
+  if (light.isDark) {
+    if (climate.mood < 0.45) {
+      for (let at = 0; at < env.pw; at += 1) {
+        const y = Math.floor(hash(at, 41) * env.ph * 0.5)
+        const isLit = hash(at, Math.floor(env.ticks / 12) + 7) > 0.3
+
+        if (hash(at, 40) < 0.05 && isLit) {
+          dot(canvas, at, y, STARS[hash(at, 42) < 0.4 ? 0 : 1] ?? '#ffffff')
         }
       }
     }
 
+    fill(canvas, x - 1, 1, 3, 4, MOON)
+    fill(canvas, x - 2, 2, 5, 2, MOON)
+    fill(canvas, x + 1, 1, 2, 3, MOON_SHADOW)
+
     return
   }
 
-  for (let dx = -1; dx <= 1; dx += 1) {
-    for (let dy = -1; dy <= 1; dy += 1) {
-      dot(canvas, x + dx, y + dy, SUN)
+  const y = Math.round(2 + (1 - Math.sin(day * Math.PI)) * env.ph * 0.3)
+  const body = light.isDusk ? DUSK_SUN : SUN
+  const sky = skyOf(climate, light)
+
+  for (let dy = -3; dy <= 4; dy += 1) {
+    for (let dx = -3; dx <= 4; dx += 1) {
+      const far = Math.hypot(dx - 0.5, dy - 0.5)
+
+      if (far <= 1.9) {
+        dot(canvas, x + dx, y + dy, dx + dy <= 0 ? SUN_CORE : body)
+      } else if (far <= 3.3) {
+        const behind = along(sky, (y + dy) / Math.max(1, env.ph - 1))
+        dot(canvas, x + dx, y + dy, mix(behind, GLOW, 0.35))
+      }
     }
-  }
-
-  const isStraight = Math.floor(env.ticks / 8) % 2 === 0
-  const rays = isStraight
-    ? [[-3, 0], [3, 0], [0, -3], [0, 3]]
-    : [[-2, -2], [2, -2], [-2, 2], [2, 2]]
-
-  for (const [dx = 0, dy = 0] of rays) {
-    dot(canvas, x + dx, y + dy, SUN)
   }
 }
 
-const paintBow = (canvas: Canvas, env: Env, ticks: number): void => {
+const paintBow = (canvas: Canvas, sky: readonly string[], env: Env, ticks: number): void => {
   const reach = Math.min(env.ph - 1, 13)
   const middle = Math.floor(env.pw * 0.62)
   const floor = env.ph - 1
@@ -175,9 +297,91 @@ const paintBow = (canvas: Canvas, env: Env, ticks: number): void => {
       const isFaded = ticks < 30 && hash(dx * 17 + up, 9) > ticks / 30
 
       if (color !== undefined && band >= 0 && !isFaded) {
-        dot(canvas, middle + dx, floor - up, color)
+        const behind = along(sky, (floor - up) / Math.max(1, env.ph - 1))
+        dot(canvas, middle + dx, floor - up, mix(behind, color, 0.6))
       }
     }
+  }
+}
+
+/** The hills far to near, snowed on in winter, dark by night, greyed by a storm. */
+const paintHills = (canvas: Canvas, climate: Climate, light: Light, env: Env): void => {
+  const colors = light.isDark
+    ? light.isSnow ? NIGHT_WINTER_HILLS : NIGHT_HILLS
+    : light.isSnow ? WINTER_HILLS : HILLS
+  const gloom = gloomOf(climate.mood)
+  const grey = gloom * (light.isDark ? 0.15 : 0.4)
+  // The low sun warms the land at dawn and dusk; a storm greys and darkens it.
+  const lit = (color: string): string => {
+    const tinted = light.isDusk ? shade(mix(color, DUSK_TINT, 0.3), 0.85) : color
+
+    return shade(mix(tinted, STORM_GREY, grey), 1 - gloom * 0.2)
+  }
+  const greyed = colors.map(lit)
+  const edge = light.isSnow ? lit('#ffffff') : light.isDark ? shade(greyed[2] ?? HILL_EDGE, 1.4) : lit(HILL_EDGE)
+
+  for (let x = 0; x < env.pw; x += 1) {
+    hillTops(x, env).forEach((top, layer) => {
+      const color = greyed[layer] ?? STORM_GREY
+      fill(canvas, x, top, 1, env.ph - top, color)
+      // Each hill's crest catches a little more light than its slope.
+      dot(canvas, x, top, shade(color, layer === 0 ? 1.05 : 1.12))
+    })
+    dot(canvas, x, nearTop(x, env), edge)
+
+    // In the warm months the near hill flowers, seen by day.
+    const isBlooming =
+      !light.isDark && !light.isSnow && gloom < 0.4 && env.feed.month >= 4 && env.feed.month <= 9
+
+    if (isBlooming && hash(x, 31) < 0.07 && nearTop(x, env) < env.ph - 1) {
+      dot(canvas, x, env.ph - 1 - Math.floor(hash(x, 32) * 2), FLOWERS[Math.floor(hash(x, 33) * FLOWERS.length)] ?? '#ffffff')
+    }
+  }
+}
+
+/** A few trees on the near hill: round in summer, pines under snow. */
+const paintTrees = (canvas: Canvas, light: Light, houseAt: number, env: Env): void => {
+  const count = Math.max(2, Math.floor(env.pw / 26))
+  const crown = light.isDark ? shade(TREE, 0.45) : TREE
+  const lit = light.isSnow ? '#f4f8fb' : light.isDark ? shade(TREE_LIGHT, 0.45) : TREE_LIGHT
+  const sprite = light.isSnow ? ['.s.', 'gsg', 'ggg', '.t.'] : ['.l.', 'lgg', 'ggg', '.t.']
+
+  for (let tree = 0; tree < count; tree += 1) {
+    const x = Math.floor(hash(tree, 21) * (env.pw - 3))
+
+    if (Math.abs(x - houseAt) > 9 && env.ph >= 8) {
+      stamp(canvas, x, nearTop(x + 1, env) - sprite.length + 1, sprite, {
+        g: crown,
+        l: lit,
+        s: lit,
+        t: light.isDark ? shade(TRUNK, 0.5) : TRUNK,
+      })
+    }
+  }
+}
+
+/** The house, its window lit by night and in the rain, smoke from its chimney. */
+const paintHouse = (canvas: Canvas, climate: Climate, light: Light, at: number, env: Env): void => {
+  const sprite = env.ph >= 8 ? HOUSE : SMALL_HOUSE
+  const top = nearTop(at + 4, env) - sprite.length + 1
+  const isLit = light.isDark || climate.mood >= RAINY
+  const dim = light.isDark ? 0.55 : 1
+  stamp(canvas, at, top, sprite, {
+    c: shade(HOUSE_COLORS.c, dim),
+    r: light.isSnow ? '#f4f7fa' : shade(HOUSE_COLORS.r, dim),
+    w: shade(HOUSE_COLORS.w, dim),
+    y: isLit ? HOUSE_COLORS.y : shade('#5b6b80', dim),
+    d: shade(HOUSE_COLORS.d, dim),
+  })
+
+  const chimney = [...(sprite[0] ?? '')].indexOf('c')
+  const sky = skyOf(climate, light)
+
+  for (let puff = 0; puff < 3 && top > 1; puff += 1) {
+    const rise = (env.ticks * 0.04 + puff / 3) % 1
+    const y = top - 1 - rise * Math.min(4, top)
+    const behind = along(sky, y / Math.max(1, env.ph - 1))
+    dot(canvas, at + chimney + rise * 3, y, mix(SMOKE, behind, rise))
   }
 }
 
@@ -227,7 +431,7 @@ export const weather: Scene<Climate> = {
       .filter(cloud => cloud.x < env.pw + 2)
 
     if (climate.clouds.length < cloudsWanted(climate.mood, env) && env.roll() < 0.2) {
-      climate.clouds.push(cloudOf(-14, env))
+      climate.clouds.push(cloudOf(-22, env))
     }
 
     const isSnow = isSnowing(env)
@@ -235,16 +439,18 @@ export const weather: Scene<Climate> = {
     const slant = isSnow ? Math.sin(env.ticks * 0.2) * 0.3 : 0.2 + climate.mood * 0.5
     climate.drops = climate.drops
       .map(drop => ({ x: drop.x + slant, y: drop.y + fall }))
-      .filter(drop => drop.y < env.ph - hillAt(Math.floor(drop.x), env))
+      .filter(drop => drop.y < nearTop(drop.x, env))
 
     if (climate.mood >= RAINY) {
-      const falling = Math.ceil((climate.mood - RAINY + 0.1) * env.pw * 0.12)
+      // Snow lingers in the air three times as long, so less of it starts.
+      const rate = (climate.mood - RAINY + 0.1) * env.pw * (isSnow ? 0.025 : 0.08)
+      const falling = Math.floor(rate) + (env.roll() < rate % 1 ? 1 : 0)
 
       for (let made = 0; made < falling; made += 1) {
         climate.drops.push({ x: env.roll() * env.pw - 4, y: 3 + env.roll() * 2 })
       }
 
-      climate.drops = climate.drops.slice(-MOST_DROPS)
+      climate.drops = climate.drops.slice(-Math.ceil(env.pw * DROPS_A_COLUMN))
     }
 
     if (climate.bolt !== undefined) {
@@ -286,62 +492,58 @@ export const weather: Scene<Climate> = {
   },
 
   paint(climate, canvas, env) {
-    const isSnow = isSnowing(env)
-    const floor = env.ph - 1
+    const light = lightOf(env)
+    const sky = skyOf(climate, light)
+    const tones = tonesOf(climate, light)
+    const houseAt = Math.floor(env.pw * 0.78)
+    backdrop(canvas, sky)
 
     if (climate.mood < 0.55) {
-      paintLight(canvas, env)
+      paintLight(canvas, climate, light, env)
     }
 
     if (climate.bow > 0) {
-      paintBow(canvas, env, climate.bow)
+      paintBow(canvas, sky, env, climate.bow)
     }
 
-    const tone = climate.bolt === undefined
-      ? (CLOUDS[Math.min(CLOUDS.length - 1, Math.floor(climate.mood * CLOUDS.length))] ?? LIT_CLOUD)
-      : LIT_CLOUD
+    paintDeck(canvas, climate, tones, env)
 
     for (const cloud of climate.clouds) {
-      paintCloud(canvas, cloud, tone)
-    }
-
-    for (const drop of climate.drops) {
-      dot(canvas, drop.x, drop.y, isSnow ? FG : RAIN)
+      paintCloud(canvas, cloud, tones, env)
     }
 
     climate.bolt?.path.forEach((x, down) => {
       dot(canvas, x, BOLT_TOP + down, BOLT)
     })
+    paintHills(canvas, climate, light, env)
+    paintTrees(canvas, light, houseAt, env)
+    paintHouse(canvas, climate, light, houseAt, env)
 
-    for (let x = 0; x < env.pw; x += 1) {
-      const tall = hillAt(x, env)
+    for (const drop of climate.drops) {
+      const row = Math.floor(drop.y / 2)
 
-      for (let up = 0; up < tall; up += 1) {
-        const isTop = up === tall - 1
-        dot(canvas, x, floor - up, isTop ? (isSnow ? SNOW_CAP : HILL_TOP) : HILL)
+      if (light.isSnow) {
+        const isBig = hash(Math.floor(drop.x * 7), Math.floor(drop.y)) < 0.4
+        write(canvas, drop.x, row, isBig ? '*' : '·', isBig ? SNOW[0] : SNOW[1])
+      } else {
+        write(canvas, drop.x, row, '\\', climate.mood >= STORMY ? HEAVY_RAIN : RAIN)
       }
     }
-
-    const houseAt = Math.floor(env.pw * 0.78)
-    const lit = isDark(env) || climate.mood >= RAINY
-    stamp(canvas, houseAt, floor - hillAt(houseAt + 2, env) - HOUSE.length + 1, HOUSE, {
-      ...HOUSE_COLORS,
-      y: lit ? HOUSE_COLORS.y : HOUSE_COLORS.d,
-    })
 
     for (const bird of climate.birds) {
       const isUp = Math.floor(env.ticks / 4 + bird.row) % 2 === 0
-
-      // A bird behind a cloud is not seen.
-      if (isClear(canvas, Math.floor(bird.x), bird.row)) {
-        write(canvas, bird.x, bird.row, isUp ? 'v' : '-', FG, DIM)
-      }
+      write(canvas, bird.x, bird.row, isUp ? 'v' : '-', BIRD)
     }
 
     if (env.feed.sky !== null) {
-      // The real sky, named: right of the sun, clear of the band's own mark.
+      // The real sky, named at the top right on a darker plate of the sky:
+      // a plate of one color keeps the words one run and easy to read.
       const caption = `${env.feed.place} ${Math.round(env.feed.sky.temperature)}° ${outsideOf(env.feed.sky.code).name}`
-      sign(canvas, env.w - caption.length - 5, 0, caption, FG, DIM)
+      const x = env.w - caption.length - 5
+      // Rain or a bird written there before goes, or it shows between the words.
+      wipe(canvas, x - 1, 0, caption.length + 2)
+      fill(canvas, x - 1, 0, caption.length + 2, 2, shade(sky[0] ?? '#000000', 0.62))
+      write(canvas, x, 0, caption, CAPTION)
     }
   },
 }

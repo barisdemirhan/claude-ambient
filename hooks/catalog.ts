@@ -57,60 +57,72 @@ export const FAIL_COLOR = '#ef5350'
 /** The kind at an index of the counts, `other` where the index names none. */
 export const kindAt = (index: number): Kind => KINDS[index] ?? 'other'
 
+// Each scene's hue marks it where its name is shown: the picker, the hint line.
 export const SCENES = [
   {
     id: 'aquarium',
     name: 'Aquarium',
+    hue: '#42a5f5',
     about: 'every tool call is a fish of its kind, a failed one brings the shark',
   },
   {
     id: 'bonsai',
     name: 'Bonsai',
+    hue: '#7cb342',
     about: 'grows a little every turn and lives on between sessions, failures shed leaves',
   },
   {
     id: 'city',
     name: 'Skyline',
+    hue: '#90a4ae',
     about: 'every edit adds a floor, by the end of the day there is a skyline',
   },
   {
     id: 'stars',
     name: 'Stars',
+    hue: '#7986cb',
     about: 'every tool call is a star, every turn a constellation',
   },
   {
     id: 'weather',
     name: 'Weather',
+    hue: '#4fc3f7',
     about: 'failures gather a storm, a clean run brings the sun back',
   },
   {
     id: 'train',
     name: 'Train',
+    hue: '#e57373',
     about: 'every tool call couples a wagon, the train pulls in when the turn ends',
   },
   {
     id: 'life',
     name: 'Life',
+    hue: '#26a69a',
     about: "Conway's Game of Life, seeded by the tool calls",
   },
   {
     id: 'pulse',
     name: 'Pulse',
+    hue: '#66bb6a',
     about: 'the heartbeat of the session, every tool call a beat',
   },
   {
     id: 'fire',
     name: 'Fireplace',
+    hue: '#ff8a65',
     about: 'burns higher while Claude works',
   },
   {
     id: 'matrix',
     name: 'Matrix',
+    hue: '#00c853',
     about: 'digital rain',
   },
   {
     id: 'lofi',
     name: 'Lofi',
+    hue: '#f2b45e',
     about: 'a rainy window, a desk and a sleeping cat',
   },
 ] as const
@@ -132,4 +144,7 @@ export type Feed = AmbientFeed &
     // and empty when they named none.
     sky: AmbientSky | null
     place: string
+    // Whether the scenes that can let the terminal show behind them (the
+    // fireplace, the heart monitor, the digital rain) paint a backdrop.
+    hasBackdrop: boolean
   }

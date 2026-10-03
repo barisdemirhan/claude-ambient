@@ -2,7 +2,7 @@ import type { ClientModule, ClientSurface } from 'claude-code'
 
 import { KINDS } from './catalog'
 import type { Feed } from './catalog'
-import { canvasOf, rowsOf } from './kit'
+import { canvasOf, coarsen, rowsOf } from './kit'
 import type { Env, Happening, Scene } from './kit'
 import { aquarium } from './scenes/aquarium'
 import { bonsai } from './scenes/bonsai'
@@ -51,6 +51,11 @@ const MIN_ROWS = 3
 // band (collapsed, or behind a dialog) must not flood it when it shows again.
 const MOST_CALLS = 12
 const MOST_FAILS = 4
+// The most runs a frame is drawn in: the engine refuses a tree that
+// serializes to more than 100,000 characters, and a run costs about a
+// hundred. Past it the colors are rounded by these steps, coarser each time.
+const MOST_RUNS = 500
+const COARSER = [16, 32, 64] as const
 const SCENE_OF: Readonly<Record<string, Scene<unknown>>> = {
   aquarium,
   bonsai,
@@ -138,7 +143,8 @@ const fresh = (feed: Feed, columns: number, rows: number, seed: number): Band =>
 
 /**
  * The band with the feed taken in: the same one where nothing moved, a new
- * scene where the pick or the room changed, else the scene told the news.
+ * scene where the pick, the room or the backdrop changed, else the scene
+ * told the news.
  */
 const caughtUp = (
   band: Band,
@@ -146,7 +152,12 @@ const caughtUp = (
   columns: number,
   rows: number,
 ): Band => {
-  if (band.scene !== feed.scene || band.columns !== columns || band.rows !== rows) {
+  if (
+    band.scene !== feed.scene ||
+    band.columns !== columns ||
+    band.rows !== rows ||
+    band.feed.hasBackdrop !== feed.hasBackdrop
+  ) {
     return fresh(feed, columns, rows, band.seed)
   }
 
@@ -231,10 +242,22 @@ const Ambient: ClientModule<Feed, Band> = (feed, surface) => {
 
   const canvas = canvasOf(band.columns, band.rows)
   scene.paint(band.sim, canvas, envOf(band))
+  let rows = rowsOf(canvas)
+
+  // A frame of too many runs is refused by the engine, and the band goes:
+  // its colors are made coarser until neighbours match and it fits.
+  for (const step of COARSER) {
+    if (rows.reduce((runs, row) => runs + row.length, 0) <= MOST_RUNS) {
+      break
+    }
+
+    coarsen(canvas, step)
+    rows = rowsOf(canvas)
+  }
 
   return (
     <Box flexDirection="column">
-      {rowsOf(canvas).map(runs => (
+      {rows.map(runs => (
         <Box>
           {runs.map(({ text, ...style }) => (
             <Text {...style} wrap="truncate-end">

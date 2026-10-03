@@ -123,6 +123,40 @@ export const shade = (color: string, factor: number): string => {
   return `#${scaled.join('')}`
 }
 
+/** Two `#rrggbb` colors mixed: the first at 0, the second at 1. */
+export const mix = (from: string, to: string, at: number): string => {
+  const share = clamp(at, 0, 1)
+  const mixed = [1, 3, 5].map(index => {
+    const one = Number.parseInt(from.slice(index, index + 2), 16)
+    const other = Number.parseInt(to.slice(index, index + 2), 16)
+
+    return Math.round(one + (other - one) * share)
+      .toString(16)
+      .padStart(2, '0')
+  })
+
+  return `#${mixed.join('')}`
+}
+
+/**
+ * The color at a point along stops spread evenly from 0 to 1, in as many
+ * steps as given: neighbouring pixels then share a color, and a row of the
+ * band costs fewer runs.
+ */
+export const along = (stops: readonly string[], at: number, steps = 0): string => {
+  const first = stops[0] ?? '#000000'
+
+  if (stops.length < 2) {
+    return first
+  }
+
+  const share = steps > 1 ? Math.round(clamp(at, 0, 1) * (steps - 1)) / (steps - 1) : clamp(at, 0, 1)
+  const reach = share * (stops.length - 1)
+  const low = Math.min(stops.length - 2, Math.floor(reach))
+
+  return mix(stops[low] ?? first, stops[low + 1] ?? first, reach - low)
+}
+
 export const canvasOf = (w: number, h: number): Canvas => ({
   w,
   h,
@@ -142,6 +176,56 @@ export const dot = (canvas: Canvas, x: number, y: number, color: string): void =
   if (column >= 0 && column < canvas.pw && row >= 0 && row < canvas.ph) {
     canvas.pixels[row * canvas.pw + column] = color
   }
+}
+
+/** Colors a rectangle of pixels, its top left at a pixel. */
+export const fill = (
+  canvas: Canvas,
+  x: number,
+  y: number,
+  wide: number,
+  tall: number,
+  color: string,
+): void => {
+  const left = Math.max(0, Math.floor(x))
+  const top = Math.max(0, Math.floor(y))
+  const right = Math.min(canvas.pw, Math.floor(x + wide))
+  const bottom = Math.min(canvas.ph, Math.floor(y + tall))
+
+  for (let row = top; row < bottom; row += 1) {
+    canvas.pixels.fill(color, row * canvas.pw + left, row * canvas.pw + Math.max(left, right))
+  }
+}
+
+/**
+ * Paints the whole band top to bottom through the stops, one color to a
+ * pixel row: a sky, deep water, a wall.
+ */
+export const backdrop = (canvas: Canvas, stops: readonly string[]): void => {
+  for (let row = 0; row < canvas.ph; row += 1) {
+    fill(canvas, 0, row, canvas.pw, 1, along(stops, canvas.ph > 1 ? row / (canvas.ph - 1) : 0))
+  }
+}
+
+/**
+ * Rounds every raw color on the canvas to a coarser one, each channel to a
+ * multiple of the step: neighbours that differed a little then match, and
+ * their cells join one run.
+ */
+export const coarsen = (canvas: Canvas, step: number): void => {
+  const coarse = (color: string): string =>
+    color.startsWith('#')
+      ? `#${[1, 3, 5]
+          .map(at =>
+            clamp(Math.round(Number.parseInt(color.slice(at, at + 2), 16) / step) * step, 0, 255)
+              .toString(16)
+              .padStart(2, '0'),
+          )
+          .join('')}`
+      : color
+
+  canvas.pixels = canvas.pixels.map(coarse)
+  canvas.inks = canvas.inks.map(coarse)
 }
 
 /** The color of one pixel, empty where none is set or off the canvas. */
@@ -248,25 +332,30 @@ const isHex = (color: string): boolean => color.startsWith('#')
 const cellAt = (canvas: Canvas, x: number, row: number): Cell => {
   const at = row * canvas.w + x
   const glyph = canvas.glyphs[at] ?? ''
+  const upper = canvas.pixels[row * 2 * canvas.pw + x] ?? ''
+  const lower = canvas.pixels[(row * 2 + 1) * canvas.pw + x] ?? ''
 
   if (glyph !== '') {
+    // A glyph over painted pixels keeps them behind it, as its background:
+    // the lower one, which a scene's ground or water most often is.
     return {
       glyph,
       ink: canvas.inks[at] ?? FG,
-      back: '',
+      back: [lower, upper].find(isHex) ?? '',
       style: canvas.styles[at] ?? 0,
     }
   }
-
-  const upper = canvas.pixels[row * 2 * canvas.pw + x] ?? ''
-  const lower = canvas.pixels[(row * 2 + 1) * canvas.pw + x] ?? ''
 
   if (upper === '' && lower === '') {
     return BLANK
   }
 
   if (upper === lower) {
-    return { glyph: FULL, ink: upper, back: '', style: 0 }
+    // A cell of one raw color is a space on that background: it shows no
+    // ink, so it joins any run beside it on the same background.
+    return isHex(upper)
+      ? { glyph: ' ', ink: '', back: upper, style: 0 }
+      : { glyph: FULL, ink: upper, back: '', style: 0 }
   }
 
   if (upper === '') {
@@ -284,6 +373,17 @@ const cellAt = (canvas: Canvas, x: number, row: number): Cell => {
     : { glyph: LOWER, ink: lower, back: isHex(upper) ? upper : '', style: 0 }
 }
 
+/** The same two colors the other way up: the upper half's color as the background. */
+const flipped = (cell: Cell): Cell | undefined =>
+  (cell.glyph === UPPER || cell.glyph === LOWER) && isHex(cell.ink) && isHex(cell.back)
+    ? {
+        glyph: cell.glyph === UPPER ? LOWER : UPPER,
+        ink: cell.back,
+        back: cell.ink,
+        style: cell.style,
+      }
+    : undefined
+
 const runOf = (text: string, cell: Cell): Run => ({
   text,
   ...(isHex(cell.ink) ? { color: cell.ink } : {}),
@@ -292,46 +392,50 @@ const runOf = (text: string, cell: Cell): Run => ({
   ...((cell.style & BOLD) === 0 ? {} : { bold: true }),
 })
 
-const isSameStyle = (one: Cell, other: Cell): boolean =>
-  one.ink === other.ink && one.back === other.back && one.style === other.style
+/**
+ * True where a cell can be drawn in the run's style: on the same background,
+ * as a space, or in the run's ink, or as the first ink of a run of spaces.
+ */
+const isJoinable = (run: Cell, cell: Cell): boolean =>
+  run.back === cell.back &&
+  (cell.glyph === ' ' ||
+    run.ink === '' ||
+    (run.ink === cell.ink && run.style === cell.style))
 
 /**
- * The canvas as rows of runs. A blank cell joins the run beside it, since a
- * space shows no ink, so a row costs a run per change of style and no more.
+ * The canvas as rows of runs. A space shows no ink, so it joins the run
+ * beside it on its background, and a cell of two colors is turned the way
+ * up the run beside it draws: a row costs a run per change of style and no
+ * more.
  */
 export const rowsOf = (canvas: Canvas): Run[][] =>
   Array.from({ length: canvas.h }, (_, row) => {
     const runs: Run[] = []
     let text = ''
-    let style: Cell | undefined
+    let run: Cell = BLANK
 
     for (let x = 0; x < canvas.w; x += 1) {
-      const cell = cellAt(canvas, x, row)
-      const isBlank = cell.glyph === ' '
-      const isJoined =
-        style === undefined
-          ? isBlank || cell.back === ''
-          : isBlank
-            ? style.back === ''
-            : isSameStyle(style, cell)
+      const drawn = cellAt(canvas, x, row)
+      const turned = flipped(drawn)
+      const cell =
+        text !== '' && !isJoinable(run, drawn) && turned !== undefined && isJoinable(run, turned)
+          ? turned
+          : drawn
 
-      if (!isJoined) {
-        if (text !== '') {
-          runs.push(runOf(text, style ?? BLANK))
-        }
-
+      if (text !== '' && !isJoinable(run, cell)) {
+        runs.push(runOf(text, run))
         text = ''
-        style = undefined
+        run = BLANK
+      }
+
+      if (text === '' || (run.ink === '' && cell.glyph !== ' ')) {
+        run = { ...cell, glyph: '', ink: cell.glyph === ' ' ? '' : cell.ink }
       }
 
       text += cell.glyph
-
-      if (!isBlank) {
-        style = cell
-      }
     }
 
-    runs.push(runOf(text, style ?? BLANK))
+    runs.push(runOf(text, run))
 
     return runs
   })

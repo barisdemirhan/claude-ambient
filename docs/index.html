@@ -124,6 +124,7 @@
     <button id="sound" type="button" aria-pressed="false">Sound on</button>
     <label for="volume">volume <input id="volume" type="range" min="0" max="100" value="55"></label>
     <button id="fail" type="button">Make a call fail</button>
+    <button id="backdrop" type="button" aria-pressed="false" title="The fireplace, the heart monitor and the digital rain paint a backdrop, or show the terminal behind them">Backdrop</button>
     <span class="note" id="status"></span>
   </div>
 
@@ -147,8 +148,8 @@
       </article>
       <article>
         <h3>Switches under the prompt</h3>
-        <p>In the fullscreen terminal and the desktop app, a row under the hint line turns the band and the sound on and off, sets the volume and opens the scene picker, with a click.</p>
-        <pre>♪ lofi  [ ● band ]  [ ● sound ]  [ - ] 55% [ + ]  [ scenes ]</pre>
+        <p>In the fullscreen terminal and the desktop app, a row under the hint line turns the band on and off, shows it always or only while Claude works, makes it shorter or taller, turns the sound on and off, sets the volume and opens the scene picker, with a click. <b>You pick what the row holds</b>: <code>/ambient hint volume off</code>, or the picker.</p>
+        <pre>♪ lofi  [ ● band ]  [ ◉ always ]  [ - ] 5 rows [ + ]  [ ● sound ]  [ - ] 55% [ + ]  [ scenes ]</pre>
       </article>
       <article>
         <h3>Some of it lasts</h3>
@@ -169,6 +170,8 @@
         <tr><td>/ambient shuffle</td><td>A new scene with every turn</td></tr>
         <tr><td>/ambient rows 5</td><td>How tall the band is, 3 to 10 rows</td></tr>
         <tr><td>/ambient when</td><td>Show always, or only while Claude works</td></tr>
+        <tr><td>/ambient backdrop</td><td>The fireplace, the heart monitor and the digital rain paint a backdrop, or show your terminal behind them, as they do to begin with</td></tr>
+        <tr><td>/ambient hint volume off</td><td>Leaves a control out of the row under the prompt: <code>name</code>, <code>band</code>, <code>when</code>, <code>rows</code>, <code>sound</code>, <code>volume</code>, <code>scenes</code></td></tr>
         <tr><td>/ambient off</td><td>Takes the band and its sound away; <code>on</code> brings them back</td></tr>
       </table>
     </div>
@@ -199,7 +202,8 @@ claude plugin install ambient@claude-ambient</pre>
 
   const { catalog, kinds, kindColors, scenes, canvasOf, rowsOf } = globalThis.AmbientScenes
   const { SR, SCENES: SOUNDS } = globalThis.AmbientSynth
-  const HUES = { aquarium: '#42a5f5', bonsai: '#7cb342', city: '#90a4ae', stars: '#7986cb', weather: '#4fc3f7', train: '#e57373', life: '#26a69a', pulse: '#66bb6a', fire: '#ff8a65', matrix: '#00c853', lofi: '#f2b45e' }
+  // Each scene's hue, as the mod's catalog gives it.
+  const HUES = Object.fromEntries(catalog.map(scene => [scene.id, scene.hue]))
   // What Claude's calls look like in the transcript, by kind.
   const CALLS = {
     read: ['Read(hooks/band.tsx)', 'Read(README.md)', 'Read(hooks/kit.ts)'],
@@ -235,6 +239,8 @@ claude plugin install ambient@claude-ambient</pre>
   // The real sky, once the visitor names a place: what the mod keeps too.
   let sky = null
   let place = ''
+  // Whether the fireplace, the monitor and the rain paint a backdrop: off, as in the mod.
+  let hasBackdrop = false
 
   const roll = () => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
@@ -260,6 +266,7 @@ claude plugin install ambient@claude-ambient</pre>
     month: today.getMonth() + 1,
     sky,
     place,
+    hasBackdrop,
   })
 
   // ── The band, drawn on a canvas the way the terminal draws it in cells ──
@@ -604,6 +611,12 @@ claude plugin install ambient@claude-ambient</pre>
 
   document.getElementById('turn').addEventListener('click', runTurn)
   document.getElementById('fail').addEventListener('click', fail)
+  // A new backdrop starts the scene over, as it does in the mod.
+  document.getElementById('backdrop').addEventListener('click', e => {
+    hasBackdrop = !hasBackdrop
+    e.currentTarget.setAttribute('aria-pressed', String(hasBackdrop))
+    start()
+  })
   document.getElementById('volume').addEventListener('input', () => {
     if (master !== undefined) {
       master.gain.setTargetAtTime(volume(), audio.currentTime, 0.05)

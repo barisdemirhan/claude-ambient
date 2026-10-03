@@ -17,17 +17,17 @@ Restart Claude Code, then run `/ambient`.
 
 | Scene | What you see | What Claude's work does to it |
 | --- | --- | --- |
-| `aquarium` | A fish tank with weeds, sand and bubbles | Every tool call is a fish of its kind (reads are minnows, shell calls are crabs, web calls are jellyfish, agents are whales). A failed call brings the shark and the fish flee. When the turn ends, it is feeding time |
-| `bonsai` | A bonsai in a pot, in a garden | It grows a little every finished turn and lives on between sessions. A failed call sheds leaves, which grow back. The leaves follow the season on your clock, flowers sprout around it, and a grown tree bears fruit |
-| `city` | A street that becomes a skyline | Every edit adds a floor. The skyline is kept for the day and starts over the next morning. Other calls are traffic, a failed call is a blackout, and a turn that built something ends with fireworks. Sun, moon and lit windows follow your clock |
-| `stars` | A night sky | Every tool call is a star in its kind's color, every turn a constellation that gets a name when the turn ends. A failed call's star falls |
-| `weather` | Hills, a house, sun and clouds | Failures gather a storm: clouds, rain, then lightning. Clean calls calm it, and when the rain has passed there is a rainbow. It snows in winter |
-| `train` | A steam engine on a line | Every tool call couples a wagon of its kind. When the turn ends the train pulls into a station named for the turn, and leaves the wagons there when the next one starts. A failed call's wagon limps along throwing sparks |
-| `life` | Conway's Game of Life | Every tool call drops a pattern of its kind into the dish (gliders, spaceships, acorns), in its kind's color. A failed call is a blight |
-| `pulse` | A heart monitor | Every tool call is a beat, a failed one a beat out of step. At rest the heart beats slow and small |
-| `fire` | A fireplace | It burns higher while Claude works, every call is a log on the fire, and a failed call turns the flames blue for a moment |
-| `matrix` | Digital rain | Calls rain down in their kind's color, failed ones in red, and the end of a turn decodes on the screen |
-| `lofi` | A rainy window, a laptop, a mug, an equalizer and a sleeping cat | The laptop types what Claude is doing, the equalizer bounces with the calls, and a failed call startles the cat |
+| `aquarium` | A fish tank lit from above: sand, rocks, coral, swaying weed and bubbles | Every tool call is a fish of its kind (reads are minnows, shell calls are crabs, web calls are jellyfish, agents are whales). A failed call brings the shark and the fish flee. When the turn ends, it is feeding time |
+| `bonsai` | A bonsai in a glazed pot, in a garden with hills and a stone lantern, under the sky of your clock | It grows a little every finished turn and lives on between sessions. A failed call sheds leaves, which grow back. The leaves follow the season on your clock, flowers sprout around it, and a grown tree bears fruit |
+| `city` | A street that becomes a skyline, a far city behind it, under the sky of your clock | Every edit adds a floor. The skyline is kept for the day and starts over the next morning. Other calls are traffic, a failed call is a blackout, and a turn that built something ends with fireworks. Sun, moon and lit windows follow your clock |
+| `stars` | A night sky with the Milky Way, over dark hills and pines | Every tool call is a star in its kind's color, every turn a constellation that gets a name when the turn ends. A failed call's star falls |
+| `weather` | Hills, a house with a smoking chimney, trees, and a sun or moon that crosses the sky with your clock | Failures gather a storm: clouds, rain, then lightning. Clean calls calm it, and when the rain has passed there is a rainbow. It snows in winter |
+| `train` | A steam engine on a line through hills and mountains, under the sky of your clock | Every tool call couples a wagon of its kind. When the turn ends the train pulls into a station named for the turn, and leaves the wagons there when the next one starts. A failed call's wagon limps along throwing sparks |
+| `life` | Conway's Game of Life in a lit dish, dead cells glowing as they fade | Every tool call drops a pattern of its kind into the dish (gliders, spaceships, acorns), in its kind's color. A failed call is a blight |
+| `pulse` | A heart monitor's trace and its readout, on the terminal or on the monitor's own screen | Every tool call is a beat, a failed one a beat out of step. At rest the heart beats slow and small. Where the band is wide enough, the readout shows the rate, the beats, the beats out of step and a bar for each recent turn |
+| `fire` | A fire the band across, or with `/ambient backdrop on` a brick fireplace in a firelit room | It burns higher while Claude works, every call is a log on the fire, and a failed call turns the flames blue for a moment |
+| `matrix` | Digital rain, near and far, on the terminal or on a screen of its own | Calls rain down in their kind's color, failed ones in red, and the end of a turn decodes on the screen |
+| `lofi` | A rainy city window, a laptop, a mug, a lamp, a radio with an equalizer and a sleeping cat | The laptop types what Claude is doing, the equalizer bounces with the calls, and a failed call startles the cat |
 
 A tool call's kind is one of read, search, edit, shell, web, agent, MCP or other, taken from the tool's name.
 
@@ -72,11 +72,13 @@ Weather data by [Open-Meteo.com](https://open-meteo.com/), under CC BY 4.0. Thei
 | `/ambient off`, `/ambient on` | Takes the band away, and brings it back. While it is off nothing is counted and nothing sounds |
 | `/ambient sound [on\|off]` | The scene's sound. Off to begin with. `/ambient mute` and `/ambient stop` turn it off, `/ambient play` turns it on |
 | `/ambient volume <0-100\|up\|down>` | How loud. 55 to begin with |
-| `/ambient hint [on\|off]` | The controls under the hint line: `♪ lofi  [ ● band ]  [ ● sound ]  [ - ] 55% [ + ]  [ scenes ]`. A click switches the band or the sound, turns the volume down or up, or opens the picker and closes it again. Where the terminal is too narrow for the row, the controls go on to the next one. They need a pointer, so they show in the terminal's fullscreen layout and the desktop app; on the terminal's main screen the hint line ends in `♪ lofi 55%` instead |
+| `/ambient hint [on\|off]` | The controls under the hint line: `♪ lofi  [ ● band ]  [ ◉ always ]  [ - ] 5 rows [ + ]  [ ● sound ]  [ - ] 55% [ + ]  [ scenes ]`. A click switches the band, switches it between showing always and only while Claude works, makes it a row shorter or taller, switches the sound, turns the volume down or up, or opens the picker and closes it again. Where the terminal is too narrow for the row, the controls go on to the next one. They need a pointer, so they show in the terminal's fullscreen layout and the desktop app; on the terminal's main screen the hint line ends in `♪ lofi 55%` instead |
+| `/ambient hint <control> [on\|off]` | Shows one control in that row, or leaves it out, so the row holds only what you use: `name`, `band`, `when`, `rows`, `sound`, `volume` or `scenes`. With no word, the other of the two. The picker shows and hides them too, under "Under the prompt" |
 | `/ambient weather <city\|auto\|off>` | The place whose real sky the weather scene follows |
 | `/ambient shuffle [on\|off]` | A new scene with every turn |
-| `/ambient rows <3-10>` | How tall the band is. Five rows to begin with |
-| `/ambient when [always\|working]` | Whether the band shows always, or only while Claude works. With no word, the other of the two |
+| `/ambient rows <3-10>` | How tall the band is. Five rows to begin with. The `[ - ] 5 rows [ + ]` under the hint line sets it too |
+| `/ambient when [always\|working]` | Whether the band shows always, or only while Claude works. With no word, the other of the two. The `[ ◉ always ]` switch under the hint line turns it too |
+| `/ambient backdrop [on\|off]` | Whether the fireplace, the heart monitor and the digital rain paint a backdrop of their own, or show your terminal behind them. Off to begin with: the terminal shows. With no word, the other of the two. The picker switches it too |
 | `/ambient replant` | Plants a new bonsai |
 
 The band is Claude Code's own band above the prompt, so its keys work here too: `ctrl+x` `ctrl+a` collapses it.
@@ -86,7 +88,7 @@ The band is Claude Code's own band above the prompt, so its keys work here too: 
 - A Claude Code build with mod support (plugins that ship a hooks module). Built and tested on 2.1.287. Mods sit behind a rollout switch, so if `/ambient` does not show up after installing, the switch may still be off for you.
 - The terminal or the desktop app. The band is not drawn on other surfaces; the picker is.
 - A band at least 20 columns wide and 3 rows tall.
-- The scenes are drawn in 24-bit color and look best in a terminal that has it. The Matrix scene uses half-width katakana, which your terminal's font has to have.
+- The scenes are painted in 24-bit color, most of them every cell of the band, and look best in a terminal that has it. The Matrix scene uses half-width katakana, which your terminal's font has to have.
 - Sound needs macOS, where Claude Code has a player for it. Elsewhere the scenes are silent.
 
 ## What it does on your machine

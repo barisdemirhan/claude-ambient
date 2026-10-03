@@ -359,7 +359,7 @@ test('/ambient opens the picker, and a press in it picks the scene on every surf
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PICKER, surface })
-    expect(await ui.findAll({ type: 'Button' })).toHaveLength(SCENES.length + 8)
+    expect(await ui.findAll({ type: 'Button' })).toHaveLength(SCENES.length + 16)
 
     await ui.press({ key: 'fire' })
     expect(await typed($, 'list')).toContain('● fire')
@@ -647,7 +647,8 @@ test('the hint line under the prompt says what plays, beside what other mods put
 
   // Where there is a pointer (the terminal's fullscreen layout, the desktop
   // app) the line under the hint holds the controls instead: a switch for
-  // the band, one for the sound, a button for the picker.
+  // the band and one for when it shows, one for the sound, a button for the
+  // picker.
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({
       plugin: 'ambient',
@@ -660,18 +661,34 @@ test('the hint line under the prompt says what plays, beside what other mods put
     // The engine's own line is still drawn, untouched, over the controls.
     expect(await ui.find({ type: 'Text', text: 'auto mode on||' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '♪ lofi' })).toBeDefined()
-    expect(await labels()).toEqual(['● band', '● sound', '-', '+', 'scenes'])
+    expect(await labels()).toEqual(['● band', '◉ always', '-', '+', '● sound', '-', '+', 'scenes'])
     expect(await ui.find({ type: 'Text', text: '55%' })).toBeDefined()
 
     await ui.press({ key: 'sound' })
-    expect(await labels()).toEqual(['● band', '○ sound', '-', '+', 'scenes'])
+    expect(await labels()).toEqual(['● band', '◉ always', '-', '+', '○ sound', '-', '+', 'scenes'])
     expect(await typed($, 'list')).toContain('sound off')
     await ui.press({ key: 'band' })
-    expect((await labels()).slice(0, 2)).toEqual(['○ band', '○ sound'])
+    const [band, when, , , sound] = await labels()
+    expect([band, when, sound]).toEqual(['○ band', '◉ always', '○ sound'])
     expect(await ui.find({ type: 'Text', text: '♪ ambient' })).toBeDefined()
     expect(await typed($, 'list')).toContain('Ambient is off')
     await ui.press({ key: 'band' })
     await ui.press({ key: 'sound' })
+
+    // The switch beside the band's says when it shows, and turns it.
+    await ui.press({ key: 'when' })
+    expect((await labels())[1]).toBe('◐ working')
+    expect(await typed($, 'list')).toContain('shows while Claude works')
+    await ui.press({ key: 'when' })
+    expect((await labels())[1]).toBe('◉ always')
+
+    // The band's height beside it goes down and up by a row.
+    expect(await ui.find({ type: 'Text', text: '5 rows' })).toBeDefined()
+    await ui.press({ key: 'taller' })
+    expect(await ui.find({ type: 'Text', text: '6 rows' })).toBeDefined()
+    expect(await typed($, 'list')).toContain('6 rows')
+    await ui.press({ key: 'shorter' })
+    expect(await typed($, 'list')).toContain('5 rows')
 
     // The volume beside the sound goes down and up by a step.
     await ui.press({ key: 'quieter' })
@@ -698,6 +715,148 @@ test('the hint line under the prompt says what plays, beside what other mods put
   await typed($, 'hint')
   await typed($, 'off')
   expect(await hintWith()).toBe('auto mode on||')
+})
+
+test('as a session opens, the band and its row follow the kept settings, never the defaults', async ($, on) => {
+  world(on, { settings: { scene: 'lofi', when: 'working', isSoundOn: true, volume: 40 } })
+  // What the engine draws when no mod does.
+  on('ui.render', ($$, e) => $$.ui.resolve(e).Text({ children: 'nothing here' }))
+  const bandAt = async (isWorking: boolean) => {
+    const ui = await $.ui.mount({
+      ...BAND,
+      props: { ...BAND.props, isWorking },
+      surface: 'terminal',
+    })
+    const isAway = (await ui.find({ type: 'Text', text: 'nothing here' })) !== undefined
+    await ui.unmount()
+
+    return !isAway
+  }
+  const row = async () => {
+    const ui = await $.ui.mount({
+      plugin: 'ambient',
+      surface: 'desktop',
+      component: 'PromptHint',
+      props: { isDraft: false, isWorking: false, hint: 'auto mode on' },
+      viewport: { columns: 100, rows: 40 },
+    })
+    const labels = (await ui.findAll({ type: 'Button' })).map(button => button.text)
+    const name = (await ui.find({ type: 'Text', text: '♪ lofi' })) !== undefined
+    await ui.unmount()
+
+    return { labels, name }
+  }
+
+  // Drawn before the session's start has read the store: a band kept to show
+  // only while Claude works stays away at rest, and the row says what is kept.
+  expect(await bandAt(false)).toBe(false)
+  expect(await bandAt(true)).toBe(true)
+  expect(await row()).toEqual({
+    labels: ['● band', '◐ working', '-', '+', '● sound', '-', '+', 'scenes'],
+    name: true,
+  })
+
+  await $.session.start(SESSION)
+  expect(await bandAt(false)).toBe(false)
+  expect(await bandAt(true)).toBe(true)
+  expect((await row()).labels[1]).toBe('◐ working')
+})
+
+test('the row under the hint line holds the controls the person picks, and keeps them', async ($, on) => {
+  const { store } = world(on)
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.render', ($$, e) => $$.ui.resolve(e).Text({ children: 'the engine\'s line' }))
+  const row = async () => {
+    const ui = await $.ui.mount({
+      plugin: 'ambient',
+      surface: 'terminal',
+      component: 'PromptHint',
+      props: { isDraft: false, isWorking: false, hint: 'auto mode on' },
+      viewport: { columns: 100, rows: 40, isFullscreen: true },
+    })
+    const labels = (await ui.findAll({ type: 'Button' })).map(button => button.text)
+    const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+    await ui.unmount()
+
+    return { labels, texts }
+  }
+
+  expect((await row()).labels).toEqual(['● band', '◉ always', '-', '+', '○ sound', '-', '+', 'scenes'])
+
+  expect(await typed($, 'hint volume off')).toBe(
+    'Ambient leaves the volume out from under the prompt.',
+  )
+  expect(await row()).toEqual({
+    labels: ['● band', '◉ always', '-', '+', '○ sound', 'scenes'],
+    texts: ["the engine's line", '♪ aquarium', '5 rows'],
+  })
+  expect(await typed($, 'hint name off')).toContain('leaves the scene\'s name out')
+  expect(await typed($, 'hint when')).toContain('leaves when the band shows out')
+  expect(await row()).toEqual({
+    labels: ['● band', '-', '+', '○ sound', 'scenes'],
+    texts: ["the engine's line", '5 rows'],
+  })
+
+  // The picker shows and hides them too.
+  await typed($, '')
+  const picker = await $.ui.mount({ ...PICKER, surface: 'terminal' })
+  await picker.press({ key: 'control-band' })
+  await picker.press({ key: 'control-sound' })
+  await picker.press({ key: 'control-scenes' })
+  await picker.press({ key: 'control-rows' })
+  await picker.unmount()
+  // With none of them, the row is gone and the engine's line is drawn alone.
+  expect(await row()).toEqual({ labels: [], texts: ["the engine's line"] })
+
+  expect(await typed($, 'hint volume on')).toBe('Ambient shows the volume under the prompt.')
+  expect((await row()).labels).toEqual(['-', '+'])
+  expect(await typed($, 'hint volume maybe')).toContain('Usage: /ambient')
+  expect(await typed($, 'hint on off')).toContain('Usage: /ambient')
+
+  // A control shown brings back the row the person had taken away.
+  await typed($, 'hint off')
+  expect((await row()).labels).toEqual([])
+  await typed($, 'hint band on')
+  expect((await row()).labels).toEqual(['● band', '-', '+'])
+
+  // The next session opens on the same row.
+  expect(store.get('settings')).toMatchObject({ controls: ['band', 'volume'], hasHint: true })
+  await $.session.start(SESSION)
+  expect((await row()).labels).toEqual(['● band', '-', '+'])
+})
+
+test('the fireplace, the heart monitor and the digital rain show the terminal behind them, or paint a backdrop', async ($, on) => {
+  world(on)
+  // True where every run of the band has a background: nothing of the
+  // terminal shows through.
+  const isPainted = async (scene: string) => {
+    await typed($, scene)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await ui.resize({ columns: COLUMNS, rows: ROWS })
+    await $.tool.call(CALLS.read)
+    await ui.advance(1500)
+    const runs = await ui.findAll({ type: 'Text', in: 'band' })
+    await ui.unmount()
+
+    return runs.every(run => typeof run.props.backgroundColor === 'string')
+  }
+
+  for (const scene of ['fire', 'pulse', 'matrix']) {
+    expect(await isPainted(scene)).toBe(false)
+  }
+
+  expect(await isPainted('aquarium')).toBe(true)
+
+  expect(await typed($, 'backdrop on')).toBe(
+    'Ambient paints a backdrop behind the fireplace, the heart monitor and the digital rain.',
+  )
+
+  for (const scene of ['fire', 'pulse', 'matrix', 'aquarium']) {
+    expect(await isPainted(scene)).toBe(true)
+  }
+
+  expect(await typed($, 'backdrop')).toContain('shows the terminal behind')
+  expect(await typed($, 'backdrop maybe')).toContain('Usage: /ambient')
 })
 
 test('the commands take the words a person tries first', async ($, on) => {
