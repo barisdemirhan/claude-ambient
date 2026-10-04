@@ -69,7 +69,8 @@ Weather data by [Open-Meteo.com](https://open-meteo.com/), under CC BY 4.0. Thei
 | `/ambient <scene>` | Picks a scene by its name, the start of it, or an alias (`skyline`, `ekg`, `tree`, `fish`, `cat` and the like) |
 | `/ambient list` | Names the scenes and shows the settings |
 | `/ambient next`, `/ambient prev` | Steps through the scenes |
-| `/ambient off`, `/ambient on` | Takes the band away, and brings it back. While it is off nothing is counted and nothing sounds |
+| `/ambient off`, `/ambient on` | Takes the band away, and brings it back. While it is off nothing is counted and nothing sounds. The row under the hint line stays, so `[ ○ band ]` there brings the band back with a click. Every open session follows within two seconds |
+| `/ambient close` | Takes it all away, in every open session within two seconds: the band, its sound and the row under the hint line. `/ambient exit` and `/ambient quit` do the same. `/ambient on` brings them back as they were |
 | `/ambient sound [on\|off]` | The scene's sound. Off to begin with. `/ambient mute` and `/ambient stop` turn it off, `/ambient play` turns it on |
 | `/ambient volume <0-100\|up\|down>` | How loud. 55 to begin with |
 | `/ambient hint [on\|off]` | The controls under the hint line: `♪ lofi  [ ● band ]  [ ◉ always ]  [ - ] 5 rows [ + ]  [ ● sound ]  [ - ] 55% [ + ]  [ scenes ]`. A click switches the band, switches it between showing always and only while Claude works, makes it a row shorter or taller, switches the sound, turns the volume down or up, or opens the picker and closes it again. Where the terminal is too narrow for the row, the controls go on to the next one. They need a pointer, so they show in the terminal's fullscreen layout and the desktop app; on the terminal's main screen the hint line ends in `♪ lofi 55%` instead |

@@ -23,6 +23,8 @@ export type AmbientControl = 'name' | 'band' | 'when' | 'rows' | 'sound' | 'volu
 export type AmbientSettings = {
   scene: string
   isOn: boolean
+  /** True after `/ambient close`: the band and its row under the prompt are both away. */
+  isClosed: boolean
   rows: number
   when: 'always' | 'working'
   isShuffled: boolean

@@ -28,8 +28,9 @@ const SETTINGS = 'settings'
 const WORLD = 'world'
 const PLAYER = 'player'
 // One session plays the bed, however many are open. Every session looks at
-// who that is this often; the one that plays says so this often; and a
-// session not heard from for this long has gone, its place free to take.
+// who that is, and at what another may have switched, this often; the one
+// that plays says so this often; and a session not heard from for this long
+// has gone, its place free to take.
 const TICK_MS = 2000
 const BEAT_MS = 6000
 const LEASE_MS = 20_000
@@ -51,6 +52,8 @@ const HINT_GAP = 2
 // Other words for the sound going off and on.
 const QUIET_WORDS = ['stop', 'mute', 'quiet', 'silent']
 const LOUD_WORDS = ['play', 'unmute']
+// Other words for closing it all: the band, its row and its sound.
+const CLOSE_WORDS = ['close', 'exit', 'quit']
 // Open-Meteo, asked only once the person names a place: where the place is,
 // and what the sky does over it, every quarter of an hour.
 const SKY_EVERY_MS = 15 * 60_000
@@ -96,10 +99,11 @@ const ALIASES: Readonly<Record<string, SceneId>> = {
   cat: 'lofi',
 }
 const USAGE =
-  'Usage: /ambient opens the picker, /ambient <scene> picks one, or /ambient list, next, prev, on, off, sound [on|off], mute, volume <0-100|up|down>, weather <city|auto|off>, shuffle [on|off], rows <3-10>, when [always|working], hint [name|band|when|rows|sound|volume|scenes] [on|off], backdrop [on|off], replant.'
+  'Usage: /ambient opens the picker, /ambient <scene> picks one, or /ambient list, next, prev, on, off, close, sound [on|off], mute, volume <0-100|up|down>, weather <city|auto|off>, shuffle [on|off], rows <3-10>, when [always|working], hint [name|band|when|rows|sound|volume|scenes] [on|off], backdrop [on|off], replant.'
 const DEFAULTS: AmbientSettings = {
   scene: 'aquarium',
   isOn: true,
+  isClosed: false,
   rows: 5,
   when: 'always',
   isShuffled: false,
@@ -199,6 +203,7 @@ const toControls = (value: unknown): AmbientControl[] =>
 const toSettings = (value: unknown): AmbientSettings => ({
   scene: sceneOf(fieldOf(value, 'scene'))?.id ?? DEFAULTS.scene,
   isOn: fieldOf(value, 'isOn') !== false,
+  isClosed: fieldOf(value, 'isClosed') === true,
   rows: toRows(fieldOf(value, 'rows')),
   when: fieldOf(value, 'when') === 'working' ? 'working' : 'always',
   isShuffled: fieldOf(value, 'isShuffled') === true,
@@ -283,33 +288,37 @@ const released = async ($: EngineInterface): Promise<void> => {
 }
 
 /**
- * Makes the sound what it should be now. One session plays the bed, however
- * many are open: the one that holds the `player` entry of the store, which
- * every session of the mod reads. A session takes the entry when it is free,
- * or, as `isClaiming`, because the person just did something in it; the
- * others see that at their next look and fall silent.
+ * Takes up what another session switched, and makes the sound what it
+ * should be now. One session plays the bed, however many are open: the one
+ * that holds the `player` entry of the store, which every session of the
+ * mod reads. A session takes the entry when it is free, or, as `isClaiming`,
+ * because the person just did something in it; the others see that at their
+ * next look and fall silent.
  */
 const tuned = async ($: EngineInterface, isClaiming = false): Promise<void> => {
-  // The sound is one for every session: on, off and how loud are taken from
-  // the store, where another session may have switched them since.
-  const { isSoundOn, volume } = toSettings(await $.store.get(SETTINGS))
+  stage.ticker ??= $.clock.every(TICK_MS, () => {
+    void tuned($)
+  })
+  // The band's switch and the sound's are one for every session: on, off,
+  // closed and how loud are taken from the store, where another session may
+  // have switched them since. So /ambient close closes every session.
+  const { isOn, isClosed, isSoundOn, volume } = toSettings(await $.store.get(SETTINGS))
   const held = await read($, settings)
-  const now =
-    held.isSoundOn === isSoundOn && held.volume === volume
-      ? held
-      : await update($, settings, kept => ({ ...kept, isSoundOn, volume }))
+  const isHeld =
+    held.isOn === isOn &&
+    held.isClosed === isClosed &&
+    held.isSoundOn === isSoundOn &&
+    held.volume === volume
+  const now = isHeld
+    ? held
+    : await update($, settings, kept => ({ ...kept, isOn, isClosed, isSoundOn, volume }))
 
   if (!now.isOn || !now.isSoundOn) {
-    stage.ticker?.cancel()
-    stage.ticker = undefined
     await released($)
 
     return
   }
 
-  stage.ticker ??= $.clock.every(TICK_MS, () => {
-    void tuned($)
-  })
   const time = await $.clock.now()
   const owner = toOwner(await $.store.get(PLAYER))
   const isFree = owner.id === '' || time - owner.at > LEASE_MS
@@ -452,8 +461,14 @@ const stored = async (
     | Partial<AmbientSettings>
     | ((now: AmbientSettings) => Partial<AmbientSettings>),
 ): Promise<AmbientSettings> => {
-  const changed =
+  const asked =
     typeof change === 'function' ? change(await read($, settings)) : change
+  // Closed is the band and its row away together: a change that switches the
+  // band, or brings the row back, leaves it closed no longer.
+  const changed =
+    asked.isClosed === undefined && (asked.isOn !== undefined || asked.hasHint === true)
+      ? { ...asked, isClosed: false }
+      : asked
   const next = await update($, settings, now => ({ ...now, ...changed }))
   await $.store.set(SETTINGS, {
     ...toSettings(await $.store.get(SETTINGS)),
@@ -491,7 +506,9 @@ const summary = (now: AmbientSettings): string => {
   const sound = now.isSoundOn ? `sound ${now.volume}%` : 'sound off'
   const place = now.place === null ? '' : ` · sky over ${now.place.name}`
 
-  return `Ambient is ${now.isOn ? 'on' : 'off'} · ${name} · ${now.rows} rows · shows ${shown} · shuffle ${now.isShuffled ? 'on' : 'off'} · ${sound}${place}`
+  const state = now.isClosed ? 'closed' : now.isOn ? 'on' : 'off'
+
+  return `Ambient is ${state} · ${name} · ${now.rows} rows · shows ${shown} · shuffle ${now.isShuffled ? 'on' : 'off'} · ${sound}${place}`
 }
 
 const listText = (now: AmbientSettings): string =>
@@ -688,6 +705,9 @@ const controlsWith = (
     each === id ? isShown : controls.includes(each),
   )
 
+/** True while the row under the hint line shows: kept, and not closed with the band. */
+const isRowShown = (now: AmbientSettings): boolean => now.hasHint && !now.isClosed
+
 /**
  * Shows one control in the row under the hint line, or leaves it out. A
  * control shown brings the row back, if the person had taken it away.
@@ -728,7 +748,7 @@ const hintText = async ($: EngineInterface, word: string, way: string): Promise<
       : `Ambient leaves ${control.label} out from under the prompt.`
   }
 
-  const hasHint = word === '' ? !(await read($, settings)).hasHint : SWITCH[word]
+  const hasHint = word === '' ? !isRowShown(await read($, settings)) : SWITCH[word]
 
   if (hasHint === undefined || way !== '') {
     return USAGE
@@ -882,6 +902,23 @@ const toggled = async ($: EngineInterface): Promise<void> => {
   }
 }
 
+/**
+ * `/ambient close`: the band away, the row under the prompt with it, and so
+ * its sound, where `/ambient off` leaves the row to switch the band back on.
+ * `/ambient on` brings both back as they were. The other sessions follow at
+ * their next look at the store.
+ */
+const closedText = async ($: EngineInterface): Promise<string> => {
+  if (await read($, isPicking)) {
+    await $.ui.close({ id: PANE })
+    await update($, isPicking, () => false)
+  }
+
+  await stored($, { isOn: false, isClosed: true })
+
+  return 'Ambient is closed: the band, its row under the prompt and its sound are away. /ambient on brings them back.'
+}
+
 export const register: Register = on => {
   // The store is every session's: what this one adds goes in as a difference,
   // so two sessions at once grow one tree and build one skyline.
@@ -891,7 +928,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'ambient',
       description: 'Pick the scene for the living band above the prompt',
-      argumentHint: '[scene|list|next|off|sound|mute|volume|weather|shuffle|rows|when|hint|backdrop]',
+      argumentHint: '[scene|list|next|off|close|sound|mute|volume|weather|shuffle|rows|when|hint|backdrop]',
     })
     const saved = toSettings(await $.store.get(SETTINGS))
     const before = await $.store.get(WORLD)
@@ -1004,6 +1041,10 @@ export const register: Register = on => {
 
     if (verb === 'on' || verb === 'off') {
       return { text: summary(await stored($, { isOn: verb === 'on' })) }
+    }
+
+    if (CLOSE_WORDS.includes(verb)) {
+      return { text: await closedText($) }
     }
 
     if (verb === 'next' || verb === 'prev') {
@@ -1121,15 +1162,16 @@ export const register: Register = on => {
   // the band and one for when it shows, its height, a switch for the sound
   // with its volume beside it, and a button that opens the picker and closes
   // it again, going on to another row where this one is too narrow for them.
-  // The person picks which of them the row holds. The engine's own line is
-  // drawn first, as it is, with what other mods added to it. A press needs a
-  // pointer, which the terminal has only in its fullscreen layout: on the
-  // main screen the scene and its sound are said at the end of the hint line.
+  // The person picks which of them the row holds, and `/ambient close` takes
+  // the row away with the band. The engine's own line is drawn first, as it
+  // is, with what other mods added to it. A press needs a pointer, which the
+  // terminal has only in its fullscreen layout: on the main screen the scene
+  // and its sound are said at the end of the hint line.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const now = await shownSettings($)
     const hasPointer = e.surface !== 'terminal' || e.viewport?.isFullscreen === true
 
-    if (!now.hasHint) {
+    if (!isRowShown(now)) {
       return next(e)
     }
 
@@ -1396,13 +1438,13 @@ export const register: Register = on => {
               key={`control-${control.id}`}
               plain
               hotkey={control.hotkey}
-              dimColor={!(now.hasHint && now.controls.includes(control.id))}
-              label={`${now.hasHint && now.controls.includes(control.id) ? '●' : '○'} ${control.id}`}
+              dimColor={!(isRowShown(now) && now.controls.includes(control.id))}
+              label={`${isRowShown(now) && now.controls.includes(control.id) ? '●' : '○'} ${control.id}`}
               onPress={() =>
                 shownControl(
                   $,
                   control.id,
-                  !(now.hasHint && now.controls.includes(control.id)),
+                  !(isRowShown(now) && now.controls.includes(control.id)),
                 )
               }
             />

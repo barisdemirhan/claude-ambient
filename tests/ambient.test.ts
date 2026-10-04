@@ -825,6 +825,113 @@ test('the row under the hint line holds the controls the person picks, and keeps
   expect((await row()).labels).toEqual(['● band', '-', '+'])
 })
 
+test('/ambient off leaves the row under the prompt; close takes it away with the band and its sound', async ($, on) => {
+  const { clock, plays } = world(on)
+  // What the engine draws when no mod does.
+  on('ui.render', ($$, e) => $$.ui.resolve(e).Text({ children: 'nothing here' }))
+  const labels = async () => {
+    const ui = await $.ui.mount({
+      plugin: 'ambient',
+      surface: 'terminal',
+      component: 'PromptHint',
+      props: { isDraft: false, isWorking: false, hint: 'auto mode on' },
+      viewport: { columns: 100, rows: 40, isFullscreen: true },
+    })
+    const found = (await ui.findAll({ type: 'Button' })).map(button => button.text)
+    await ui.unmount()
+
+    return found
+  }
+  const isBandShown = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    const isAway = (await ui.find({ type: 'Text', text: 'nothing here' })) !== undefined
+    await ui.unmount()
+
+    return !isAway
+  }
+  await typed($, 'lofi')
+  await typed($, 'sound on')
+  await typed($, 'hint volume off')
+  await clock.advance(400)
+
+  await typed($, 'off')
+  expect(await isBandShown()).toBe(false)
+  expect(await labels()).toEqual(['○ band', '◉ always', '-', '+', '○ sound', 'scenes'])
+
+  expect(await typed($, 'close')).toBe(
+    'Ambient is closed: the band, its row under the prompt and its sound are away. /ambient on brings them back.',
+  )
+  expect(await labels()).toEqual([])
+  expect(await isBandShown()).toBe(false)
+  expect(await typed($, 'list')).toContain('Ambient is closed')
+  plays.length = 0
+  await $.tool.call(CALLS.read)
+  await turnDone($)
+  await clock.advance(60_000)
+  expect(plays).toEqual([])
+
+  // On brings the band, the row as the person kept it, and the sound back.
+  await typed($, 'on')
+  expect(await isBandShown()).toBe(true)
+  expect(await labels()).toEqual(['● band', '◉ always', '-', '+', '● sound', 'scenes'])
+  await clock.advance(400)
+  expect(bedsOf(plays)).toEqual(['lofi-tape'])
+
+  // Closed, the row comes back on its own with /ambient hint, the band still off.
+  expect(await typed($, 'exit')).toContain('Ambient is closed')
+  await typed($, 'hint')
+  expect(await labels()).toEqual(['○ band', '◉ always', '-', '+', '○ sound', 'scenes'])
+  expect(await typed($, 'list')).toContain('Ambient is off')
+  expect(await typed($, 'close now')).toContain('Usage: /ambient')
+})
+
+test('/ambient close and on in another session reach this one at its next look', async ($, on) => {
+  const { clock, plays, store } = world(on)
+  on('ui.render', ($$, e) => $$.ui.resolve(e).Text({ children: 'nothing here' }))
+  const seen = async () => {
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    const row = await $.ui.mount({
+      plugin: 'ambient',
+      surface: 'desktop',
+      component: 'PromptHint',
+      props: { isDraft: false, isWorking: false, hint: 'auto mode on' },
+      viewport: { columns: 100, rows: 40 },
+    })
+    const isBand = (await band.find({ type: 'Text', text: 'nothing here' })) === undefined
+    const labels = (await row.findAll({ type: 'Button' })).map(button => button.text)
+    await band.unmount()
+    await row.unmount()
+
+    return { isBand, labels }
+  }
+  // Another session writes to the store this one reads.
+  const elsewhere = (change: object) =>
+    store.set('settings', { ...Object(store.get('settings')), ...change })
+  await $.session.start(SESSION)
+  await typed($, 'lofi')
+  await typed($, 'sound on')
+  await clock.advance(400)
+  expect(bedsOf(plays)).toEqual(['lofi-tape'])
+
+  elsewhere({ isOn: false, isClosed: true })
+  await clock.advance(2000)
+  expect(await seen()).toEqual({ isBand: false, labels: [] })
+  expect(store.has('player')).toBe(false)
+  const played = plays.length
+  await $.tool.call(CALLS.read)
+  await clock.advance(60_000)
+  expect(plays).toHaveLength(played)
+
+  elsewhere({ isOn: true, isClosed: false })
+  await clock.advance(2000)
+  expect(await seen()).toEqual({
+    isBand: true,
+    labels: ['● band', '◉ always', '-', '+', '● sound', '-', '+', 'scenes'],
+  })
+  await clock.advance(400)
+  expect(bedsOf(plays).at(-1)).toBe('lofi-tape')
+})
+
 test('the fireplace, the heart monitor and the digital rain show the terminal behind them, or paint a backdrop', async ($, on) => {
   world(on)
   // True where every run of the band has a background: nothing of the
